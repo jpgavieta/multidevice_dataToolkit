@@ -1,10 +1,15 @@
 # MultiDevice DataToolkit
 
-A python-based portable data processing pipeline to notebook-based html viewer (using juypter-viewer) for the statistical summaries and validations of multiple devices.
+A python-based portable and customizable data processing pipeline to notebook-based html viewer (using juypter-viewer) for the statistical summaries and validations of multiple devices.
 
-The etl (extract transform load) pipeline logic based on `device_types` as separate streams of data, not based on participants.
+The **etl (extract transform load) data pipeline** standardizes data variables, validates data types, and categorizes variables into usable dataframes (e.g. builds a GIS dataframe for mapping) — ready for data anlaysis between devices. 
 
-Doesn't keep local copies of the data.
+The etl logic based on `device_types` as separate streams of data, not based on participants. 
+It is expandable for more device types, which each require its own specific parser. 
+
+<a href="multidevice_dataflow.png">
+  <img src="multidevice_dataflow.png" alt="Flow of Data" width="600" />
+</a>  
 
 ---
 
@@ -12,7 +17,7 @@ Doesn't keep local copies of the data.
 
 ```
 /
-├── .vscode/tasks.json      ## Protoype mode: mounts onto shared file cloud
+├── .vscode/tasks.json      ## Protoype mode: mounts onto shared file cloud, does not keep any local copies
 |                             
 ├── src/   
 |   ├── __init__.py   
@@ -38,6 +43,4 @@ Doesn't keep local copies of the data.
     └── etc.
 ```
 
-<a href="multidevice_dataflow.png">
-  <img src="multidevice_dataflow.png" alt="Flow of Data" width="600" />
-</a>   
+ 

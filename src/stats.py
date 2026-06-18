@@ -22,9 +22,9 @@ def _resolve_targets(dfs, df_names, skip):
 
 
 def report_loss(device, *df_names):
-    skip    = {"all", "gis"}
+    skip    = {"all", "gis,", "raw_gis"}
     dfs     = {k: v["df"] for k, v in device["data"].items()}
-    # dfs["gis"] = device["raw_gis"]                                  # to see missing lon/lat shit
+    dfs["gis"] = device["raw_gis"]                                  # to see missing lon/lat shit
     targets = _resolve_targets(dfs, df_names, skip)
     if targets is None:
         return
@@ -61,10 +61,66 @@ def report_loss(device, *df_names):
 # # Example: profile_df(d1["data"]["pm"]["df"], title="PM - Device 1").to_notebook_iframe()
 # # Example: profile_df(d1["all"], title="All - Device 1").to_notebook_iframe()
 
-def profile_df(device, table, title=None):
+def profile_df(device, table=None, title=None, minimal=False):
+    """
+    Profile a dataframe from a device using ydata-profiling.
+    
+    Parameters:
+    -----------
+    device : dict
+        Device data dictionary containing "all" and "data" keys
+    table : str, optional
+        Table name to profile ("pm", "gas", "weather", etc.)
+        If None, profiles the merged "all" dataframe.
+    title : str, optional
+        Custom title for the ProfileReport
+    minimal : bool
+        If True, generates a minimal report (faster). Default False.
+    
+    Returns:
+    --------
+    ProfileReport object
+    
+    Raises:
+    -------
+    KeyError: if table name doesn't exist in device
+    """
     from ydata_profiling import ProfileReport
-    df = device["all"] if table == "all" else device["data"][table]["df"]
-    return ProfileReport(df, title=title, minimal=False)
+    
+    # Validate device structure
+    if "all" not in device or "data" not in device:
+        raise KeyError("Device must contain 'all' and 'data' keys")
+    
+    # Select dataframe
+    if table is None:
+        df = device["all"]
+        if title is None:
+            title = "Merged Data (All Tables)"
+    else:
+        # Validate table exists
+        if table not in device["data"]:
+            available = list(device["data"].keys())
+            raise KeyError(f"Table '{table}' not found. Available tables: {available}")
+        
+        df = device["data"][table]["df"]
+        if title is None:
+            title = f"Device Data - {table.upper()}"
+    
+    # Validate dataframe
+    if df is None or df.empty:
+        raise ValueError(f"Dataframe for '{table or 'all'}' is empty or None")
+    
+    print(f"Profiling {title}... Shape: {df.shape}")
+    return ProfileReport(df, title=title, minimal=minimal)
 
-# Example: profile_df(d1, "pm", title="PM - Device 1").to_notebook_iframe()
-# Example: profile_df(d1, "all", title="All - Device 1").to_notebook_iframe()
+# Example: report_pm = profile_df(d1, table="pm") # Profile a specific table
+# Example: report_gas = profile_df(d1, table="gas", minimal=True)  # Faster report
+
+# Example: report_all = profile_df(d1)  # Uses device["all"] # Profile the merged dataframe
+
+# Example: report = profile_df(d1, table="weather", title="Device 1 - Weather Data") # With custom title
+
+# for table_name in ["pm", "gas", "weather", "phone", "sat", "txt"]: # Profile all tables for a device
+    # report = profile_df(d1, table=table_name)#     report = profile_df(d1, table=table_name)
+
+    # etc...
