@@ -295,6 +295,16 @@ def build_gis_df(df):
 
     return gis_df
 
+def build_raw_gis_df(df):
+    """
+    Extract GIS columns without dropping rows with missing coordinates.
+    Use for data loss reporting. Use build_gis_df for mapping/visualization.
+    """
+    gis_df = get_cols(df, ["datetime", "timezone", "latitude", "longitude", "alt"])
+    if "altitude" not in gis_df.columns and any("alt" in col.lower() for col in gis_df.columns):
+        gis_df = rename_cols(gis_df, ["alt"], "altitude")
+    return gis_df
+
 # ============================================================================================================
 # For any df (general use)
 
@@ -347,65 +357,34 @@ def rename_cols(df, *args, silent=False):
 # Example: rename_cols(df, ["pm", "2", "5"], "pm2_5")               # generic skip warnings on
 # Example: rename_cols(df, ["pm", "2", "5"], "pm2_5", silent=True)  # suppress skip warnings
 
-# def report_loss(dfs, *df_names): # Change to make results into meta data
-#     """Print a coverage report for selected or all dataframes. 
-#     Adds metadata 
-
-#     Parameters
-#     ----------
-#     dfs      : dict — output of parse(), must contain "all" key
-#     df_names : str  — one or more df names, if none given reports all
-#     """
-#     skip    = {"all"}
-#     targets = _resolve_targets(dfs, df_names, skip)
-#     if targets is None:
-#         return
-
-#     total_rows = dfs["all"].shape[0]
-#     print(f"Total rows: {total_rows}\n")
-#     print(f"{'df':<10} {'column':<25} {'missing':>8} {'coverage':>10}")
-#     print("─" * 58)
-
-#     for name, df in targets.items():
-#         for col in df.columns:
-#             if col in {"datetime", "date", "time"}:
-#                 continue
-#             missing  = df[col].isna().sum()
-#             coverage = (1 - missing / total_rows) * 100
-#             bar      = "█" * int(coverage / 10) + "░" * (10 - int(coverage / 10))
-#             print(f"{name:<10} {col:<25} {missing:>8} {coverage:>8.1f}%  {bar}")
-#         print()
-
-# # Example: report_data_loss(dfs) # reports all
-# # Example: report_data_loss(dfs, "pm", "weather") # reports selected dfs
-
-from itertools import cycle
 
 # ============================================================================================================
-# Color Registry
+# # Color Registry
 
-COLOR_CYCLE = cycle([
-    "#e41a1c", "#377eb8", "#4daf4a", "#984ea3",
-    "#ff7f00", "#a65628", "#f781bf", "#999999",
-    "#66c2a5", "#fc8d62", "#8da0cb", "#e78ac3",
-])
-COLOR_REGISTRY = {}  # { variable_name: hex color }
+# from itertools import cycle
 
-def get_color(var: str) -> str:
-    """Return a consistent hex color for a given variable, assigning one if not yet registered."""
-    if var not in COLOR_REGISTRY:
-        COLOR_REGISTRY[var] = next(COLOR_CYCLE)
-    return COLOR_REGISTRY[var]
+# COLOR_CYCLE = cycle([
+#     "#e41a1c", "#377eb8", "#4daf4a", "#984ea3",
+#     "#ff7f00", "#a65628", "#f781bf", "#999999",
+#     "#66c2a5", "#fc8d62", "#8da0cb", "#e78ac3",
+# ])
+# COLOR_REGISTRY = {}  # { variable_name: hex color }
 
-def reset_colors():
-    """Clear the color registry (call on new file upload)."""
-    global COLOR_CYCLE, COLOR_REGISTRY
-    COLOR_CYCLE = cycle([
-        "#e41a1c", "#377eb8", "#4daf4a", "#984ea3",
-        "#ff7f00", "#a65628", "#f781bf", "#999999",
-        "#66c2a5", "#fc8d62", "#8da0cb", "#e78ac3",
-    ])
-    COLOR_REGISTRY = {}
+# def get_color(var: str) -> str:
+#     """Return a consistent hex color for a given variable, assigning one if not yet registered."""
+#     if var not in COLOR_REGISTRY:
+#         COLOR_REGISTRY[var] = next(COLOR_CYCLE)
+#     return COLOR_REGISTRY[var]
+
+# def reset_colors():
+#     """Clear the color registry (call on new file upload)."""
+#     global COLOR_CYCLE, COLOR_REGISTRY
+#     COLOR_CYCLE = cycle([
+#         "#e41a1c", "#377eb8", "#4daf4a", "#984ea3",
+#         "#ff7f00", "#a65628", "#f781bf", "#999999",
+#         "#66c2a5", "#fc8d62", "#8da0cb", "#e78ac3",
+#     ])
+#     COLOR_REGISTRY = {}
 
 # Example usage:
 # get_color("pm2_5_ugm3_atm")  --> "#e41a1c"

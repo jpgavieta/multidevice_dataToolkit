@@ -3,6 +3,7 @@ from src.etl.parsers import atmotube
 from src.etl.parsers import ponyopi
 
 # This should work REGARDLESS of the extract data method (read files or call apis)
+
 # Logic is all based on device_type, looping over each device_id within it.
 
 # ============================================================================================================
@@ -56,10 +57,12 @@ def transform_device_data(
                 # Standardize output structure
                 results[device_type][device_id] = {
                     "gis": parsed_result.get("gis"),
+                    "raw_gis": parsed_result.get("raw_gis"),
+                    "all": parsed_result.get("all"),
                     "data": {
                         key: {
                             "df": df,
-                            "vars": [col for col in df.columns if col != "datetime"]
+                            "cols": [col for col in df.columns if col != "datetime"]
                         }
                         for key, df in parsed_result.items()
                         if key not in ("gis", "all")
@@ -74,7 +77,7 @@ def transform_device_data(
 
 # Example: transformed = transform_device_data(raw_data)
 #          transformed["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["data"]["pm"]["df"]     # PM DataFrame for that device_id
-#          transformed["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["data"]["pm"]["vars"]    # ['pm2_5_ugm3_atm', 'pm10_ugm3_atm', ...]
+#          transformed["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["data"]["pm"]["cols"]    # ['pm2_5_ugm3_atm', 'pm10_ugm3_atm', ...]
 #          transformed["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["gis"]                   # GIS DataFrame for that device_id
 
 
@@ -114,7 +117,7 @@ def clean_data_dict(processed_data: dict, selected: dict[str, list[str]]) -> dic
             df = contents["df"]
             clean_df = df[df["datetime"].isin(valid_datetimes)].copy()
             clean_df = clean_df.dropna()
-            cleaned_folder[df_key] = { "df": clean_df, "vars": contents["vars"] }
+            cleaned_folder[df_key] = { "df": clean_df, "cols": contents["cols"] }
 
         cleaned_all[device_name] = { "gis": device_content["gis"], "data": cleaned_folder }
 

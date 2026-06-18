@@ -10,7 +10,7 @@ from src.etl.transform import transform_device_data
 
 # ============================================================================================================
 
-def load_pipeline(mount_path: str) -> dict:
+def load_data(mount_path: str) -> dict:
     """
     Run the full extract -> transform pipeline for all device_type folders
     under mount_path.
@@ -23,7 +23,7 @@ def load_pipeline(mount_path: str) -> dict:
     Returns
     -------
     dict
-        { device_type: { device_id: { "gis": df, "data": { table_name: {"df":, "vars":} } } } }
+        { device_type: { device_id: { "gis": df, "data": { table_name: {"df":, "cols":} } } } }
     """
     raw_data = extract_raw_data(mount_path)
     return transform_device_data(raw_data)
@@ -33,11 +33,34 @@ def load_pipeline(mount_path: str) -> dict:
 #          data["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["gis"]                 # GIS DataFrame for that device_id
 #          list(data["Atmotube"].keys())                                                   # all device_ids loaded for Atmotube
 
+def display_loaded_data(data):
+    """
+    Displays a summary of all devices and tables in the loaded pipeline data.
+
+    Parameters
+    ----------
+    data : dict
+        Output of load_pipeline(), structured as:
+        { device_type: { device_id: { "gis": df, "data": { table_name: {...} } } } }
+    """
+    for device_type, devices in data.items():
+        for device_id, content in devices.items():
+            tables = list(content["data"].keys())
+            gis_shape = content["gis"].shape if content["gis"] is not None else None
+            print(f"{device_type}/{device_id}")
+            print(f"  tables : {tables}")
+            print(f"  gis    : {gis_shape}")
+            for t in tables:
+                df = content["data"][t]["df"]
+                print(f"  {t:10s}: {df.shape}  |  {df['datetime'].min()} → {df['datetime'].max()}")
+            print()
 
 if __name__ == "__main__":
     MOUNT_PATH = "/home/yul/mnt/proton-data"
-    data = load_pipeline(MOUNT_PATH)
+    data = load_data(MOUNT_PATH)
     if data:
-        print(f"\n🚀 Loaded {len(data)} device_type stream(s).")
+        print(f"\nLoaded {len(data)} device_type stream(s).")
         for device_type, devices in data.items():
             print(f"   {device_type}: {len(devices)} device_id(s) -> {list(devices.keys())}")
+        print()
+        # display_loaded_data(data)

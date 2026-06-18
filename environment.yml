@@ -11,10 +11,12 @@ dependencies:
   - folium
   - plotly
   - ipykernel
+  - ydata-profiling
   - pip
   - pip:
       - jupyter_viewer   
 
+# In the VSCode terminal:
   # conda env create -f environment.yml   
   # conda activate multidevice_dataviz   
-  # jupyter_viewer  # to launch html viewer
+  # jupyter viewer  # to launch html viewer
