@@ -85,14 +85,13 @@ def build_phone_df(df):
     phone_df = get_cols(df, ["datetime", "motion", "phone", "batt", "charg"])
 
     if "Phone GPS" in df.columns:
-        phone_df = phone_df.copy()  # ← Add this
+        phone_df = phone_df.copy()  
         phone_df['gps_phone_bool'] = df['Phone GPS'].map({'yes': True, 'no': False}) # Was the phone GPS currently used for this data point? (yes/no --> 1/0)
         phone_df = phone_df.drop(columns=["Phone GPS"]) 
 
-    phone_df = rename_cols(phone_df, # Was the phone in motion? (yes/no --> 1/0)
-        ["motion"], "motion_phone_bool",
-    )
-    phone_df = phone_df.replace({'yes': True, 'no': False}).infer_objects(copy=False) # For any remaining yes/no columns (e.g. motion), convert to bools (1/0)
+    phone_df = rename_cols(phone_df, ["motion"], "motion_phone_bool")
+    phone_df["motion_phone_bool"] = phone_df["motion_phone_bool"].map({'yes': True, 'no': False})
+
 
     phone_df = rename_cols(phone_df,
         ["batt"],  "battery_phone_pct",
