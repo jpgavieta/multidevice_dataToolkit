@@ -39,12 +39,16 @@ def build_pm_df(df): # PM sensor = Sensirion SPS30
 
 def build_weather_df(df): # Barometer sensor = Bosch BME280 
     weather_df = get_cols(df, ["datetime", "temp", "hum", "press", "aqs"])
-    return rename_cols(weather_df,
+    weather_df = rename_cols(weather_df,
         ["aqs"],   "aqs_total", # AQS aggregate = PM + TVOC + CO2 + NOx
         ["temp"],  "temp_c",
         ["hum"],   "hum_pct",
         ["press"], "press_hpa"
     )
+    if "aqs_total" in weather_df.columns:
+        weather_df["aqs_total"] = weather_df["aqs_total"].astype("Int64")
+    
+    return weather_df
 
 
 def build_gas_df(df): # VOC sensor = Sensirion SGP40
@@ -86,11 +90,11 @@ def build_phone_df(df):
 
     if "Phone GPS" in df.columns:
         phone_df = phone_df.copy()  
-        phone_df['gps_phone_bool'] = df['Phone GPS'].map({'yes': True, 'no': False}) # Was the phone GPS currently used for this data point? (yes/no --> 1/0)
+        phone_df['gps_phone_bool'] = df['Phone GPS'].map({'yes': True, 'no': False}).astype('boolean') # Was the phone GPS currently used for this data point? (yes/no --> 1/0)
         phone_df = phone_df.drop(columns=["Phone GPS"]) 
 
     phone_df = rename_cols(phone_df, ["motion"], "motion_phone_bool")
-    phone_df["motion_phone_bool"] = phone_df["motion_phone_bool"].map({'yes': True, 'no': False})
+    phone_df["motion_phone_bool"] = phone_df["motion_phone_bool"].map({'yes': True, 'no': False}).astype('boolean')
 
 
     phone_df = rename_cols(phone_df,
@@ -98,8 +102,8 @@ def build_phone_df(df):
         ["charg"], "charg_phone_raw"      # temp name before splitting into two bools
     )
 
-    phone_df["charge_phone_bool"]   = phone_df["charg_phone_raw"].map({"no": False, "cd": False, "yes": True})   # Was the phone currently charging during data collection? (yes/no --> 1/0)
-    phone_df["cooldown_phone_bool"] = phone_df["charg_phone_raw"].map({"no": False, "cd": True, "yes": False})   # Was the phone currently in cooldown AFTER charging (yes/no --> 1/0, cd (cooldown) --> 1, treated as a separate boolean since cooldown may impact phone's performance)
+    phone_df["charge_phone_bool"]   = phone_df["charg_phone_raw"].map({"no": False, "cd": False, "yes": True}).astype('boolean')   # Was the phone currently charging during data collection? (yes/no --> 1/0)
+    phone_df["cooldown_phone_bool"] = phone_df["charg_phone_raw"].map({"no": False, "cd": True, "yes": False}).astype('boolean')   # Was the phone currently in cooldown AFTER charging (yes/no --> 1/0, cd (cooldown) --> 1, treated as a separate boolean since cooldown may impact phone's performance)
     phone_df = phone_df.drop(columns=["charg_phone_raw"])
 
     return phone_df

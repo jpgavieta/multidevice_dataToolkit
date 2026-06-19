@@ -1,5 +1,9 @@
 import pandas as pd
 
+from ydata_profiling import ProfileReport
+from ydata_profiling import ProfileReport
+from ydata_profiling.config import Settings
+
 
 # def _get_numeric_cols(df):
 #     """Return all numeric columns except datetime, date, time."""
@@ -8,7 +12,6 @@ import pandas as pd
 #         col for col in df.columns
 #         if col not in skip and pd.api.types.is_numeric_dtype(df[col])
 #     ]
-
 
 def _resolve_targets(dfs, df_names, skip):
     """Resolve which dfs to operate on."""
@@ -61,11 +64,12 @@ def report_loss(device, *df_names):
 # # Example: profile_df(d1["data"]["pm"]["df"], title="PM - Device 1").to_notebook_iframe()
 # # Example: profile_df(d1["all"], title="All - Device 1").to_notebook_iframe()
 
-def profile_df(device, table=None, title=None, minimal=False):
+def profile_df(device, table=None, title=None, minimal=False, theme="flatly",
+                exclude_cols=None, timeseries_col="datetime"):
     """
     Profile a dataframe from a device using ydata-profiling.
-    
-    Parameters:
+
+    Parameters
     -----------
     device : dict
         Device data dictionary containing "all" and "data" keys
@@ -76,50 +80,48 @@ def profile_df(device, table=None, title=None, minimal=False):
         Custom title for the ProfileReport
     minimal : bool
         If True, generates a minimal report (faster). Default False.
-    
-    Returns:
+    theme : str
+        HTML theme name (e.g. "flatly", "united"). Default "flatly".
+    exclude_cols : list, optional
+        Column names to exclude from profiling (e.g., ["timezone"])
+    timeseries_col : str, optional
+        Column to set as index before profiling. Default "datetime".
+        Set to None to leave the dataframe's index as-is.
+
+    Returns
     --------
     ProfileReport object
-    
-    Raises:
-    -------
-    KeyError: if table name doesn't exist in device
     """
     from ydata_profiling import ProfileReport
-    
-    # Validate device structure
+
     if "all" not in device or "data" not in device:
         raise KeyError("Device must contain 'all' and 'data' keys")
-    
-    # Select dataframe
+
     if table is None:
-        df = device["all"]
+        df = device["all"].copy()
         if title is None:
             title = "Merged Data (All Tables)"
     else:
-        # Validate table exists
         if table not in device["data"]:
             available = list(device["data"].keys())
             raise KeyError(f"Table '{table}' not found. Available tables: {available}")
-        
-        df = device["data"][table]["df"]
+        df = device["data"][table]["df"].copy()
         if title is None:
             title = f"Device Data - {table.upper()}"
-    
-    # Validate dataframe
+
     if df is None or df.empty:
         raise ValueError(f"Dataframe for '{table or 'all'}' is empty or None")
-    
+
+    if timeseries_col and timeseries_col in df.columns:
+        df = df.set_index(timeseries_col)
+        print(f"Set '{timeseries_col}' as index")
+
+    if exclude_cols is None:
+        exclude_cols = ["timezone"]
+    cols_to_drop = [col for col in exclude_cols if col in df.columns]
+    if cols_to_drop:
+        df = df.drop(columns=cols_to_drop)
+        print(f"Excluded columns: {cols_to_drop}")
+
     print(f"Profiling {title}... Shape: {df.shape}")
     return ProfileReport(df, title=title, minimal=minimal)
-
-# Example: report_pm = profile_df(d1, table="pm") # Profile a specific table
-# Example: report_gas = profile_df(d1, table="gas", minimal=True)  # Faster report
-
-# Example: report_all = profile_df(d1)  # Uses device["all"] # Profile the merged dataframe
-
-# Example: report = profile_df(d1, table="weather", title="Device 1 - Weather Data") # With custom title
-
-# for table_name in ["pm", "gas", "weather", "phone", "sat", "txt"]: # Profile all tables for a device
-#   report = profile_df(d1, table=table_name)#     report = profile_df(d1, table=table_name)
-#   etc...
