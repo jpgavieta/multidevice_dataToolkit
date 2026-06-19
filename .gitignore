@@ -8,9 +8,6 @@ __pycache__/
 *.ipynb_checkpoints/
 
 # ydata-profiling reports
-*profile_report.html
-*_profile_report.html
-profile_reports/
 *.html
 
 # Virtual environments
