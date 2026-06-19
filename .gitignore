@@ -1,11 +1,9 @@
 __pycache__/
 *.py[cod]
-*.so
-.Python
 .ipynb_checkpoints/
 
-# ydata-profiling reports
-reports/*.html
+# ydata-profiling reports (ignores ALL .html files anywhere in repo)
+*.html
 
 # Virtual environments
 venv/
