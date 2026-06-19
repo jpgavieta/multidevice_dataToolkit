@@ -1,6 +1,7 @@
 # MultiDevice DataToolkit
 
-A python-based portable and customizable data processing pipeline to notebook-based html viewer (using juypter-viewer) for thee variable validation and statistical summarization of multiple devices.
+A python-based portable and customizable data processing pipeline for variable standardization and validation of multiple devices.
+Includes a notebook to demonstrate how to use and apply the data for statistical analysis. 
 
 The **etl (extract transform load) data pipeline** standardizes data variables, validates data types, and categorizes variables into usable dataframes (e.g. builds a GIS dataframe for mapping) — ready for data anlaysis and visualization between devices. 
 
