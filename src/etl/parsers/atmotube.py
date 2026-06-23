@@ -1,9 +1,7 @@
-from functools import reduce
 import pandas as pd
 
 from src.utils import (
     build_gis_df,
-    build_raw_gis_df,
     add_timezone_col,
     get_cols,
     rename_cols,
@@ -124,7 +122,6 @@ def parse(df: pd.DataFrame) -> dict:
 
     dfs = {
         "gis":      build_gis_df(df),       # Actually from utls.py
-        "raw_gis":  build_raw_gis_df(df),   # Same here, really just for report_loss() in stats.py
         "pm":       build_pm_df(df),
         "weather":  build_weather_df(df),
         "gas":      build_gas_df(df),
@@ -133,14 +130,8 @@ def parse(df: pd.DataFrame) -> dict:
         "txt":      build_txt_df(df),
     }
 
-    dfs["all"] = reduce(
-        lambda left, right: pd.merge(left, right, on="datetime", how="left"),
-        [dfs[k] for k in ("gis", "pm", "weather", "gas", "phone", "sat", "txt")]
-    )
-
     return dfs
 
 # Example: from src.parsers.atmotube import parse
 #          dfs = parse(df)
 #          dfs["pm"]       # PM sub-dataframe
-#          dfs["all"]      # fully merged dataframe

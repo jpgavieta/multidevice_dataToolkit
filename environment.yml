@@ -8,7 +8,6 @@ dependencies:
   - numpy>=1.24
   - requests>=2.28
   - tzfpy
-  - folium>=0.14
   - plotly>=5.14
   - ipykernel # For running notebooks in VSCode
   - pip>=23.0

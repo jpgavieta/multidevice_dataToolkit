@@ -1,4 +1,7 @@
 import pandas as pd
+
+from src.utils import merge_data
+
 from src.etl.parsers import atmotube
 from src.etl.parsers import ponyopi
 
@@ -54,18 +57,13 @@ def transform_device_data(
                 # Apply the parser (Transform Step) — one device_id at a time
                 parsed_result = parser_module.parse(raw_df)
 
-                # Standardize output structure
                 results[device_type][device_id] = {
-                    "gis": parsed_result.get("gis"),
-                    "raw_gis": parsed_result.get("raw_gis"),
-                    "all": parsed_result.get("all"),
                     "data": {
                         key: {
                             "df": df,
                             "cols": [col for col in df.columns if col != "datetime"]
                         }
                         for key, df in parsed_result.items()
-                        if key not in ("gis", "all")
                     }
                 }
                 print(f"✅ Transformed {device_type}/{device_id}")
@@ -74,54 +72,8 @@ def transform_device_data(
                 print(f"❌ Transformation failed for {device_type}/{device_id}: {e}")
 
     return results
-
 # Example: transformed = transform_device_data(raw_data)
 #          transformed["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["data"]["pm"]["df"]     # PM DataFrame for that device_id
 #          transformed["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["data"]["pm"]["cols"]    # ['pm2_5_ugm3_atm', 'pm10_ugm3_atm', ...]
 #          transformed["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["gis"]                   # GIS DataFrame for that device_id
 
-
-def clean_data_dict(processed_data: dict, selected: dict[str, list[str]]) -> dict: # Was used before not being used now
-    """
-    NOTE: still written for the OLD shape ({device_type: {"gis":..., "data":...}})
-    and needs an extra device_id loop before it matches the new nested output
-    of transform_device_data above. Left as-is rather than guessed at, since
-    whether cleaning should run per device_id independently or pooled across
-    all of a device_type's device_ids is a real design decision, not just a
-    mechanical fix.
-
-    Cleans data for ALL devices based on selected columns.
-    """
-    cleaned_all = {}
-    all_selected_cols = [col for cols in selected.values() for col in cols]
-
-    if not all_selected_cols:
-        return processed_data
-
-    for device_name, device_content in processed_data.items():
-        merged = None
-        for df_key, cols in selected.items():
-            if not cols or df_key not in device_content["data"]:
-                continue
-            df = device_content["data"][df_key]["df"][["datetime"] + cols]
-            merged = df if merged is None else pd.merge(merged, df, on="datetime", how="outer")
-
-        if merged is None:
-            cleaned_all[device_name] = device_content
-            continue
-
-        valid_datetimes = set(merged.dropna(subset=all_selected_cols)["datetime"])
-        cleaned_folder = {}
-
-        for df_key, contents in device_content["data"].items():
-            df = contents["df"]
-            clean_df = df[df["datetime"].isin(valid_datetimes)].copy()
-            clean_df = clean_df.dropna()
-            cleaned_folder[df_key] = { "df": clean_df, "cols": contents["cols"] }
-
-        cleaned_all[device_name] = { "gis": device_content["gis"], "data": cleaned_folder }
-
-    return cleaned_all
-
-# Example: not yet compatible with transform_device_data's 3-level output (see note above) —
-#          needs an added device_id loop before this can run against {device_type: {device_id: {...}}}.

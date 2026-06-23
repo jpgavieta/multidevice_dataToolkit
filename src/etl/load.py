@@ -23,7 +23,7 @@ def load_data(mount_path: str) -> dict:
     Returns
     -------
     dict
-        { device_type: { device_id: { "gis": df, "data": { table_name: {"df":, "cols":} } } } }
+        { device_type: { device_id: { "gis": df, "data": { df_key: {"df":, "cols":} } } } }
     """
     raw_data = extract_raw_data(mount_path)
     return transform_device_data(raw_data)
@@ -32,28 +32,6 @@ def load_data(mount_path: str) -> dict:
 #          data["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["data"]["pm"]["df"]    # PM DataFrame for that device_id
 #          data["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["gis"]                 # GIS DataFrame for that device_id
 #          list(data["Atmotube"].keys())                                                   # all device_ids loaded for Atmotube
-
-def display_loaded_data(data):
-    """
-    Displays a summary of all devices and tables in the loaded pipeline data.
-
-    Parameters
-    ----------
-    data : dict
-        Output of load_pipeline(), structured as:
-        { device_type: { device_id: { "gis": df, "data": { table_name: {...} } } } }
-    """
-    for device_type, devices in data.items():
-        for device_id, content in devices.items():
-            tables = list(content["data"].keys())
-            gis_shape = content["gis"].shape if content["gis"] is not None else None
-            print(f"{device_type}/{device_id}")
-            print(f"  tables : {tables}")
-            print(f"  gis    : {gis_shape}")
-            for t in tables:
-                df = content["data"][t]["df"]
-                print(f"  {t:10s}: {df.shape}  |  {df['datetime'].min()} → {df['datetime'].max()}")
-            print()
 
 if __name__ == "__main__":
     MOUNT_PATH = "/home/yul/mnt/proton-data"

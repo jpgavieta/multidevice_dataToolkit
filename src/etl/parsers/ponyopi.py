@@ -3,7 +3,6 @@ import pandas as pd
 
 from src.utils import (
     build_gis_df,
-    build_raw_gis_df,
     add_timezone_col,
     get_cols,
     rename_cols,
@@ -156,7 +155,6 @@ def parse(df: pd.DataFrame) -> dict:
 
     dfs = {
         "gis":      build_gis_df(df),       # Actually from utils.py
-        "raw_gis":  build_raw_gis_df(df),   # Same here, really just for report_loss() in stats.py
         "pm":       build_pm_df(df),
         "weather":  build_weather_df(df),
         "gas":      build_gas_df(df),  
@@ -164,12 +162,7 @@ def parse(df: pd.DataFrame) -> dict:
         "sys":      build_sys_df(df),
         "net":      build_net_df(df),
     }
-
-    dfs["all"] = reduce(
-        lambda left, right: pd.merge(left, right, on="datetime", how="left"),
-        [dfs[k] for k in ("gis", "pm", "weather", "gas", "sat", "sys", "net")]  # ← add "gas"
-    )
-
+    
     return dfs
 
 # Example: from src.parsers.ponyopi import parse

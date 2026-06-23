@@ -3,10 +3,13 @@ import re
 import json
 import pandas as pd 
 
+from functools import reduce
 from tzfpy import get_tz
 
+from typing import Any, Dict, Optional
+
 # ============================================================================================================
-# For any input with JSON-blob-in-CSV data
+# JSON-blob-in-CSV Data
 
 def safe_json_loads(s):
     """Safely parse JSON string; returns empty dict on failure."""
@@ -102,11 +105,12 @@ def parse_jsonblob_csv(df, json_col=None, keep_original_cols=None):
     final_df = pd.concat(dfs_to_concat, axis=1)
     return final_df   
 
-# Example: parse_jsonblob_csv(raw_df) # automatically detects JSON column and keeps all other columns by default
+# Example: parse_jsonblob_csv(raw_df) # auto-detects JSON column and keeps all other columns by default
 
 
 # ============================================================================================================
-# For any input with UTC datetime + lat/lon columns
+# GIS Df Builder 
+    # Uses UTC datetime + lat + lon columns
 
 def detect_utc_col(df, sample_size=50):
     """
@@ -168,7 +172,8 @@ def detect_utc_col(df, sample_size=50):
 
     return df, best_col
 
-# Example: df, col = detect_utc_col(df) # standalone — auto-detects, renames, reorders, included in add_timezone_col()
+# Example: df, col = detect_utc_col(df) # standalone --> auto-detects, renames, reorders, included in add_timezone_col()
+
 
 def detect_latlon_cols(df, sample_size=50):
     """
@@ -225,7 +230,6 @@ def detect_latlon_cols(df, sample_size=50):
 
     return df, 'latitude' if lat_col else None, 'longitude' if lon_col else None
 
-
 def add_timezone_col(df, datetime_col=None, lat_col=None, lon_col=None):
     """
     Add timezone column but keep datetime in UTC.
@@ -273,15 +277,16 @@ def add_timezone_col(df, datetime_col=None, lat_col=None, lon_col=None):
 
     return df
 # Example: df = add_timezone_col(df)                                                             # fully auto-detected
-# Example: df = add_timezone_col(df, lat_col='latitude', lon_col='longitude')                    # manual lat/lon
-# Example: df = add_timezone_col(df, datetime_col='timestamp', lat_col='lat', lon_col='lon')     # fully manual
+#          df = add_timezone_col(df, lat_col='latitude', lon_col='longitude')                    # manual lat/lon
+#          df = add_timezone_col(df, datetime_col='timestamp', lat_col='lat', lon_col='lon')     # fully manual
+
 
 def build_gis_df(df):
     """
     Extract GIS columns from any standardized DataFrame.
     Requires: datetime, timezone, latitude, longitude (from add_timezone_col).
     Optional: altitude — included if detected, skipped if not.
-    Only keeps rows with valid lat/lon, datetime, and timezone.
+    Keeps all rows as-is, including missing/null values in any column.
     """
     gis_df = get_cols(df, ["datetime", "timezone", "latitude", "longitude", "alt"])
 
@@ -291,23 +296,11 @@ def build_gis_df(df):
     if "altitude" not in gis_df.columns:
         print("No altitude data available.")
 
-    gis_df = gis_df.dropna(subset=["datetime", "latitude", "longitude", "timezone"])
-
-    return gis_df
-
-def build_raw_gis_df(df):
-    """
-    Extract GIS columns without dropping rows with missing coordinates.
-    Use for data loss reporting. Use build_gis_df for mapping/visualization.
-    """
-    gis_df = get_cols(df, ["datetime", "timezone", "latitude", "longitude", "alt"])
-    if "altitude" not in gis_df.columns and any("alt" in col.lower() for col in gis_df.columns):
-        gis_df = rename_cols(gis_df, ["alt"], "altitude")
     return gis_df
 
 
 # ============================================================================================================
-# For any df (general use)
+# Helpers for Df Builders in parsers/
 
 def get_cols(df, include_keywords, exclude_keywords=None):
     """Find columns with include_keywords and exclude_keywords (case-insensitive)."""
@@ -356,58 +349,177 @@ def rename_cols(df, *args, silent=False):
     return df.rename(columns=mapping)
 
 # Example: rename_cols(df, ["pm", "2", "5"], "pm2_5")               # generic skip warnings on
-# Example: rename_cols(df, ["pm", "2", "5"], "pm2_5", silent=True)  # suppress skip warnings
+#          rename_cols(df, ["pm", "2", "5"], "pm2_5", silent=True)  # suppress skip warnings
 
-def extract_dfs(source: dict) -> dict:
-    """
-    Normalize a "subdivided dfs" input into a flat {table_name: df} dict.
-    For accepting subdivided per-device dataframes (shared input in stats.py modules).
-
-    Accepts either:
-    - the per-device dict produced by transform_device_data()
-        (has a "data" key: {table_name: {"df": df, "cols": [...]}})
-    - the flat dict returned directly by a parser's parse()
-        (table_name: df)
-
-    Lets downstream functions (report_loss, profile_df, check_ranges, etc.)
-    accept either shape without each reimplementing this check.
-    """
-    if "data" in source:
-        return {k: v["df"] for k, v in source["data"].items()}
-    return {k: v for k, v in source.items() if isinstance(v, pd.DataFrame)}
-
-# Example: extract_dfs(transformed["Atmotube"][device_id])  # device-dict shape
-# Example: extract_dfs(atmotube.parse(raw_df))               # flat parser-output shape
 
 # ============================================================================================================
-# # Color Registry
+# Helpers for Df Navigation in notebooks/
 
-# from itertools import cycle
+def skim_loaded_data(data):
+    """
+    Displays a summary of all devices and dfs in the loaded pipeline data.
 
-# COLOR_CYCLE = cycle([
-#     "#e41a1c", "#377eb8", "#4daf4a", "#984ea3",
-#     "#ff7f00", "#a65628", "#f781bf", "#999999",
-#     "#66c2a5", "#fc8d62", "#8da0cb", "#e78ac3",
-# ])
-# COLOR_REGISTRY = {}  # { variable_name: hex color }
+    Parameters
+    ----------
+    data : dict
+        Output of load_pipeline(), structured as:
+        { device_type: { device_id: { "data": { table_name: { "df": df, "cols": [...] } } } } }
+        Every table — including "gis" and "all" — lives under "data" with no
+        special-cased top-level keys.
+    """
+    for device_type, devices in data.items():
+        for device_id, content in devices.items():
+            dfs = list(content["data"].keys())
+            print(f"{device_type}/{device_id}")
+            print(f"  dfs : {dfs}")
+            for t in dfs:
+                df = content["data"][t]["df"]
+                print(f"  {t:10s}: {df.shape}  |  {df['datetime'].min()} → {df['datetime'].max()}")
+            print()
 
-# def get_color(var: str) -> str:
-#     """Return a consistent hex color for a given variable, assigning one if not yet registered."""
-#     if var not in COLOR_REGISTRY:
-#         COLOR_REGISTRY[var] = next(COLOR_CYCLE)
-#     return COLOR_REGISTRY[var]
+def skim(data, device_type=None, device_id=None, df_key=None, col=None):
+    # a. no filtering: show everything
+    if device_type is None:
+        return skim_loaded_data(data)
 
-# def reset_colors():
-#     """Clear the color registry (call on new file upload)."""
-#     global COLOR_CYCLE, COLOR_REGISTRY
-#     COLOR_CYCLE = cycle([
-#         "#e41a1c", "#377eb8", "#4daf4a", "#984ea3",
-#         "#ff7f00", "#a65628", "#f781bf", "#999999",
-#         "#66c2a5", "#fc8d62", "#8da0cb", "#e78ac3",
-#     ])
-#     COLOR_REGISTRY = {}
+    # b. filter to one device_type (AKA all device_ids)
+    if device_id is None:
+        return skim_loaded_data({device_type: data[device_type]})
 
-# Example usage:
-# get_color("pm2_5_ugm3_atm")  --> "#e41a1c"
-# get_color("temp_c")           --> "#377eb8"
-# get_color("pm2_5_ugm3_atm")  --> "#e41a1c"  (same variable, same color)
+    # now we have one specific device_id
+    content = data[device_type][device_id]
+
+    # c. filter to one specific device_id (and all its dfs)
+    if df_key is None:
+        return skim_loaded_data({device_type: {device_id: content}})
+
+    # d. filter to one dfs (df_key) -> per-column: name (len, dtype)
+    if col is None:
+        df = content["data"][df_key]["df"]
+        print(f"{device_type}/{device_id}/{df_key}")
+        print(f"  df.shape: {df.shape}")  # optional quick sanity line
+        for c in df.columns:
+            s = df[c]
+            # (len, dtype) in a similar style to your device summaries
+            print(f"  {c:25s}: ({len(s)}, {s.dtype})")
+        return df
+
+    # e. filter to one variable-only: one column/Series (same path, minimal metadata)
+    s = content["data"][df_key]["df"][col]
+    print(f"{device_type}/{device_id}/{df_key}/{col}")
+    print(f"  ({len(s)}, {s.dtype})")
+    return None
+
+# Examples:   skim(data)                                             # all loaded data
+#             skim(data, "Atmotube")                                 # all Atmotube device_ids
+#             skim(data, "Atmotube", device_id)                      # one device_id
+#             skim(data, "Atmotube", device_id, "pm")                # only pm df
+#             skim(data, "Atmotube", device_id, "pm", "pm_2_5_ugm")  # only pm 2.5 column
+
+def get(data, device_type=None, device_id=None, df_key=None, col=None):
+    """
+    Analysis-friendly "one function" accessor for your nested structure.
+
+    Expected hierarchy (based on your display output):
+        data[device_type][device_id]["data"][df_key]["df"]  -> pandas DataFrame
+        data[device_type][device_id]["data"][df_key]["df"][col] -> pandas Series/column
+
+    Routing (controlled by which optional args you pass):
+        get(data)
+        -> returns the whole input unchanged
+
+        get(data, device_type)
+        -> returns all devices of that type: data[device_type]
+        (i.e., {device_id: device_content})
+
+        get(data, device_type, device_id)
+        -> returns a flattened dict of that device's dfs: {df_key: df}
+        (handy for iterating in stats/analysis)
+
+        get(data, device_type, device_id, df_key)
+        -> returns the specific DataFrame table
+
+        get(data, device_type, device_id, df_key, col)
+        -> returns a single Series/column from that table
+    """
+
+    # If you don't specify a device_type, don't do navigation—just return the data as-is.
+    if device_type is None:
+        return data
+
+    # If device_type is given but no device_id, return all device contents of that type.
+    # Example: data["Atmotube"] -> {device_id: device_content}
+    if device_id is None:
+        return data[device_type]
+
+    # Now we have a single device_id, so we can grab its "device_content" object.
+    # Example: content = data["Atmotube"][some_device_id]
+    content = data[device_type][device_id]
+
+    # If df_key is not provided, flatten all dfs for this device into {df_key: df}.
+    # Example: {"pm": <DataFrame>, "weather": <DataFrame>, ...}
+    if df_key is None:
+        return {
+            k: v["df"]
+            for k, v in content["data"].items()
+            # Defensive check: make sure each entry looks like {"df": <DataFrame>}
+            if isinstance(v, dict) and "df" in v
+        }
+
+    # If df_key is provided, get the specific DataFrame for that table name.
+    df = content["data"][df_key]["df"]
+
+    # If no column is requested, return the whole DataFrame.
+    if col is None:
+        return df
+
+    # Otherwise return a single column/Series from the DataFrame.
+    return df[col]
+
+
+# Examples:   get(data)                                             # all loaded data
+#             get(data, "Atmotube")                                 # all Atmotube device_ids (device_content dict)
+#             get(data, "Atmotube", device_id)                      # one device_content (with "data" dfs)
+#             get(data, "Atmotube", device_id, "pm")                # only pm DataFrame
+#             get(data, "Atmotube", device_id, "pm", "pm2_5_ugm3_atm")  # only pm column/Series
+#             get(data, "Atmotube", device_id, None)               # flattened {df_key: df} (if you ever support this explicitly)
+
+
+
+# def merge_data(dfs: dict[str, pd.DataFrame], *df_names, how: str = "outer") -> pd.DataFrame:
+#     """
+#     Merge a dict of per-category DataFrames into one wide DataFrame, joined
+#     on "datetime".
+
+#     By default merges every table in `dfs`. Pass specific table names as
+#     positional args to merge only those instead.
+
+#     Args:
+#         dfs: flat dict of {df_key: df} — typically extract_dfs(device).
+#         *df_names: optional table names to merge (e.g. "pm", "weather").
+#                     If omitted, every table in dfs is merged.
+#         how: join type passed to pd.merge (default "outer" — preserves
+#                 every timestamp present in ANY table, rather than only
+#                 timestamps present in whichever table happens to be first).
+#     """
+#     if df_names:
+#         invalid = [n for n in df_names if n not in dfs]
+#         if invalid:
+#             print(f"df(s) not found: {invalid}. Available: {list(dfs.keys())}")
+#             return None
+#         dfs = [dfs[n] for n in df_names]
+#     else:
+#         dfs = list(dfs.values())
+
+#     if not dfs:
+#         return pd.DataFrame()
+
+#     return reduce(
+#         lambda left, right: pd.merge(left, right, on="datetime", how=how),
+#         dfs
+#     )
+
+# # Example: merge_data(extract_dfs(device))                          # merge everything
+# #          merge_data(extract_dfs(device), "pm", "weather")         # just pm + weather, joined on datetime
+
+
