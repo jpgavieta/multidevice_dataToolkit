@@ -58,9 +58,8 @@ def transform_device_data(
 
                 results[device_type][device_id] = { 
                     "data": {
-                        key: { # this turns it 
+                        key: {  
                             "df": df,
-                            # "cols": [col for col in df.columns if col != "datetime"] # i dont think this is being used anywhere else? seems unnecessary shit to me
                         }
                         for key, df in parsed_result.items()
                     }
@@ -72,7 +71,5 @@ def transform_device_data(
 
     return results
 # Example: transformed = transform_device_data(raw_data)
-#          transformed["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["data"]["pm"]["df"]     # PM DataFrame for that device_id
-#          transformed["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["data"]["pm"]["cols"]    # ['pm2_5_ugm3_atm', 'pm10_ugm3_atm', ...]
-#          transformed["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["gis"]                   # GIS DataFrame for that device_id
-
+#          transformed["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["data"]["pm"]["df"]   # PM DataFrame for that device_id
+#          transformed["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["data"]["gis"]["df"]  # GIS DataFrame for that device_id

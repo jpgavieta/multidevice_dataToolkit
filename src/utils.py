@@ -445,7 +445,7 @@ def get(data, device_type=None, device_id=None, df_key=None, col=None):
             return df[list(col)]
         return df[col]
 
-    # NEW: multiple device_ids
+    # allows for multiple device_ids
     if isinstance(device_id, (list, tuple, set)):
         out = {}
         for did in device_id:
