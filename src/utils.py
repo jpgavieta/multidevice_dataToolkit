@@ -576,11 +576,10 @@ def merge(*dfs_dicts, df_names=None, how="outer", **named_dicts):
 
 def get(data, device_type=None, device_id=None, df_key=None, col=None):
     """
-    The single navigation function for the nested pipeline structure. 
-
+    The single navigation function for the nested pipeline structure.
     Always returns a dict or a Series — never a bare DataFrame at the top
-    level. 
-    
+    level.
+
     Unwrapping a table's {"df": df} entry into an actual DataFrame
     happens exclusively inside unnest() — get() never reaches into ["df"]
     itself.
@@ -600,13 +599,13 @@ def get(data, device_type=None, device_id=None, df_key=None, col=None):
         out = {}
         for dt in device_type:
             if dt not in data:
-                print(f"⚠️ {dt} is not available")
+                print(f"⚠️ device_type '{dt}' is not available")
                 continue
             out[dt] = get(data, dt, device_id, df_key, col)
         return out
 
     if device_type not in data:
-        print(f"⚠️ {device_type} is not available")
+        print(f"⚠️ device_type '{device_type}' is not available")
         return None
 
     # b. if no given device_id, return all devices of the given type
@@ -619,20 +618,29 @@ def get(data, device_type=None, device_id=None, df_key=None, col=None):
     #   col is a str -> a Series
     #   col is a list/tuple/set -> dict {col_name: Series}, never a
     #                   sub-DataFrame
-    def select_cols(df):
+    def select_cols(df, table_name, did, dtypename):
         if col is None:
             return df
+
         if isinstance(col, (list, tuple, set)):
             out = {}
             for c in col:
                 if c not in df.columns:
-                    print(f"⚠️ {c} is not available")
+                    print(
+                        f"⚠️ col '{c}' is not available in df '{table_name}' "
+                        f"(device_type '{dtypename}', device_id '{did}')"
+                    )
                     continue
                 out[c] = df[c]
             return out
+
         if col not in df.columns:
-            print(f"⚠️ {col} is not available")
+            print(
+                f"⚠️ col '{col}' is not available in df '{table_name}' "
+                f"(device_type '{dtypename}', device_id '{did}')"
+            )
             return None
+
         return df[col]
 
     # one or more device_ids
@@ -640,13 +648,15 @@ def get(data, device_type=None, device_id=None, df_key=None, col=None):
         out = {}
         for did in device_id:
             if did not in data[device_type]:
-                print(f"⚠️ {did} is not available")
+                print(
+                    f"⚠️ device_id '{did}' is not available in device_type '{device_type}'"
+                )
                 continue
             out[did] = get(data, device_type, did, df_key, col)
         return out
 
     if device_id not in data[device_type]:
-        print(f"⚠️ {device_id} is not available")
+        print(f"⚠️ device_id '{device_id}' is not available in device_type '{device_type}'")
         return None
 
     # c. single device_id — unwrap once via unnest(), use it everywhere below
@@ -655,30 +665,39 @@ def get(data, device_type=None, device_id=None, df_key=None, col=None):
 
     # c1. if df_key is None: every table for this device
     if df_key is None:
-        return {k: select_cols(df) for k, df in dfs.items()}
+        return {
+            k: select_cols(df, k, device_id, device_type) for k, df in dfs.items()
+        }
 
     # c2. df_key is a collection: just those tables, always as a dict
     if isinstance(df_key, (list, tuple, set)):
         out = {}
         for k in df_key:
             if k not in dfs:
-                print(f"⚠️ {k} is not available")
+                print(
+                    f"⚠️ df '{k}' is not available in device_id '{device_id}' "
+                    f"(device_type '{device_type}')"
+                )
                 continue
-            out[k] = select_cols(dfs[k])
+            out[k] = select_cols(dfs[k], k, device_id, device_type)
         return out
 
     if df_key not in dfs:
-        print(f"⚠️ {df_key} is not available")
+        print(
+            f"⚠️ df '{df_key}' is not available in device_id '{device_id}' "
+            f"(device_type '{device_type}')"
+        )
         return None
 
     # c3. df_key is a single key — still wrapped in a dict, since a bare
     # DataFrame is never the top-level return. col=None -> {df_key: df};
     # col=str -> a Series (the one non-dict result, and that's allowed);
     # col=list -> dict of Series, via select_cols.
-    result = select_cols(dfs[df_key])
+    result = select_cols(dfs[df_key], df_key, device_id, device_type)
     if col is None:
         return {df_key: result}
     return result
+
 
 # Examples:
 #   get(data)                                                                   # entire loaded dataset, unchanged
