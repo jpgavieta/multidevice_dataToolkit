@@ -6,7 +6,7 @@ import pandas as pd
 from functools import reduce
 from tzfpy import get_tz
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Literal
 
 # ============================================================================================================
 # JSON-blob-in-CSV Data
@@ -126,7 +126,7 @@ def detect_utc_col(df, sample_size=50):
     )
     name_keywords = ['time', 'date', 'datetime', 'timestamp', 'ts']
 
-    candidates = {}
+    candidates: Dict[str, float] = {}
 
     for col in df.columns:
         score = 0
@@ -162,7 +162,7 @@ def detect_utc_col(df, sample_size=50):
     if not candidates:
         return df, None
 
-    best_col = max(candidates, key=candidates.get)
+    best_col = max(candidates, key=candidates.__getitem__)
 
     df = df.rename(columns={best_col: 'datetime'})
     cols = ['datetime'] + [c for c in df.columns if c != 'datetime']
@@ -184,8 +184,8 @@ def detect_latlon_cols(df, sample_size=50):
     lat_keywords = ['lat', 'latitude']
     lon_keywords = ['lon', 'lng', 'longitude']
 
-    lat_candidates = {}
-    lon_candidates = {}
+    lat_candidates: Dict[str, float] = {}
+    lon_candidates: Dict[str, float] = {}
 
     for col in df.columns:
         col_lower = col.lower()
@@ -207,8 +207,8 @@ def detect_latlon_cols(df, sample_size=50):
             if -180 <= col_min and col_max <= 180:
                 lon_candidates[col] = 4
 
-    lat_col = max(lat_candidates, key=lat_candidates.get) if lat_candidates else None
-    lon_col = max(lon_candidates, key=lon_candidates.get) if lon_candidates else None
+    lat_col = max(lat_candidates, key=lambda col: lat_candidates[col]) if lat_candidates else None
+    lon_col = max(lon_candidates, key=lambda col: lon_candidates[col]) if lon_candidates else None
 
     rename_map = {}
     if lat_col and lat_col != 'latitude':
@@ -281,7 +281,7 @@ def add_timezone_col(df, datetime_col=None, lat_col=None, lon_col=None):
 #          df = add_timezone_col(df, datetime_col='timestamp', lat_col='lat', lon_col='lon')     # fully manual
 
 
-def build_gis_df(df):
+def build_gis_df(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     """
     Extract GIS columns from any standardized DataFrame.
     Requires: datetime, timezone, latitude, longitude (from add_timezone_col).
@@ -485,7 +485,7 @@ def skim(data, device_type=None, device_id=None, df_key=None, col=None):
 #   skim(data, "Atmotube", device_id, "pm", ["pm2_5_ugm3_atm", "pm10_ugm3_atm"]) # two columns
 
 
-def unnest(content):
+def unnest(content: Any) -> Dict[str, pd.DataFrame]:
     """
     Unwrap a device's content dict into a flat {df_key: df} dict — the
     raw material merge() expects.
@@ -511,7 +511,12 @@ def unnest(content):
 #   unnest(device)                                    # equivalent — get() already returns this same shape
 
 
-def merge(*dfs_dicts, df_names=None, how="outer", **named_dicts):
+def merge(
+    *dfs_dicts,
+    df_names=None,
+    how: Literal['left', 'right', 'outer', 'inner', 'cross', 'left_anti', 'right_anti'] = "outer",
+    **named_dicts
+):
     """
     Merge function for the unnest() output (dict of {table_name: df}) into one
     wide DataFrame joined on "datetime".

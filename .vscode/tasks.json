@@ -6,7 +6,7 @@
         {
             "label": "Mount Proton Datafiles",
             "type": "shell",
-            "command": "mkdir -p ~/mnt/proton-data && rclone mount 'proton:Multidevice Datafiles' ~/mnt/proton-data --vfs-cache-mode full --vfs-cache-max-size 4G",   
+            "command": "mkdir -p ~/mnt/proton-data && rclone mount 'proton:Multidevice Datafiles' ~/mnt/proton-data --no-traverse --dir-cache-time 0 --vfs-cache-mode off",
             "isBackground": true,
             "problemMatcher": [],
             "presentation": {

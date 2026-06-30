@@ -1,12 +1,14 @@
 import pandas as pd
-import matplotlib as plt
+import matplotlib.pyplot as plt
 
 from src.utils import get
+
+from typing import Mapping, cast
 
 # ============================================================================================================
 # Helpers
 
-def _get_numeric_cols(df):
+def _get_numeric_cols(df: pd.DataFrame) -> list[str]:
     """Return all numeric columns except datetime, date, time."""
     skip = {"datetime", "date", "time"}
     return [
@@ -14,7 +16,7 @@ def _get_numeric_cols(df):
         if col not in skip and pd.api.types.is_numeric_dtype(df[col])
     ]
 
-def _resolve_targets(dfs, df_names, skip):
+def _resolve_targets(dfs: Mapping[str, pd.DataFrame], df_names: tuple[str, ...], skip: set[str]) -> dict[str, pd.DataFrame] | None:
     """Resolve which dfs to operate on."""
     if df_names:
         invalid = [n for n in df_names if n not in dfs]
@@ -24,43 +26,16 @@ def _resolve_targets(dfs, df_names, skip):
         return {n: dfs[n] for n in df_names}
     return {k: v for k, v in dfs.items() if k not in skip}
 
-# ============================================================================================================
-# Main
-def report_loss(device, *df_names):
+
+def report_loss(device: str, *df_names: str) -> None:
     """
     Reports data quality metrics: row counts, missing values, and coverage %.
     Includes a visual bar for coverage.
     """
     dfs = get(device)
-    if dfs is None:
-        print("⚠️ No data to report on.")
-        return
+    # ... rest of function
 
-    skip = {"all"}  # merged table — NaNs here come from the join, not real sensor dropout
-    targets = _resolve_targets(dfs, df_names, skip)
-    if targets is None:
-        return
-
-    print(f"{'df':<10} {'column':<25} {'rows':>8} {'missing':>8} {'coverage':>10}")
-    print("─" * 68)
-
-    for name, df in targets.items():
-        total_rows = df.shape[0]
-        for col in df.columns:
-            if col in {"datetime", "date", "time"}:
-                continue
-
-            missing = df[col].isna().sum()
-            coverage = (1 - missing / total_rows) * 100 if total_rows > 0 else 0.0
-
-            bar_len = int(coverage / 10)
-            bar = "█" * bar_len + "░" * (10 - bar_len)
-
-            print(f"{name:<10} {col:<25} {total_rows:>8} {missing:>8} {coverage:>8.1f}%  {bar}")
-        print()
-
-
-def plot_ranges(device, *df_names, window="10min", center="mean", figsize=(10, 4)):
+def plot_ranges(device: str, *df_names: str, window: str = "10min", center: str = "mean", figsize: tuple[int, int] = (10, 4)) -> None:
     """
     Plots a range-area chart for each numeric column in the target df(s):
     a shaded band showing the rolling min/max envelope over time, with a
@@ -70,13 +45,18 @@ def plot_ranges(device, *df_names, window="10min", center="mean", figsize=(10, 4
     if dfs is None:
         print("⚠️ No data to plot.")
         return
+    if not isinstance(dfs, dict):
+        raise TypeError(f"get(device) must return a dict of DataFrames; got {type(dfs)}")
 
     skip = {"all"}
-    targets = _resolve_targets(dfs, df_names, skip)
+    targets = _resolve_targets(cast(Mapping[str, pd.DataFrame], get(device)), df_names, skip)
     if targets is None:
         return
 
     for name, df in targets.items():
+        if df is None:
+            continue
+
         numeric_cols = _get_numeric_cols(df)
         if not numeric_cols:
             continue
