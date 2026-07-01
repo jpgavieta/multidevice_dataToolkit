@@ -27,13 +27,42 @@ def _resolve_targets(dfs: Mapping[str, pd.DataFrame], df_names: tuple[str, ...],
     return {k: v for k, v in dfs.items() if k not in skip}
 
 
-def report_loss(device: str, *df_names: str) -> None:
+def report_loss(device, *df_names):
     """
     Reports data quality metrics: row counts, missing values, and coverage %.
     Includes a visual bar for coverage.
     """
     dfs = get(device)
-    # ... rest of function
+    if dfs is None:
+        print("⚠️ No data to report on.")
+        return
+    if not isinstance(dfs, dict):
+        raise TypeError(f"get(device) must return a dict of DataFrames; got {type(dfs)}")
+
+    skip = {"all"}  # merged table — NaNs here come from the join, not real sensor dropout
+    targets = _resolve_targets(dfs, df_names, skip)
+    if targets is None:
+        return
+
+    print(f"{'df':<10} {'column':<25} {'rows':>8} {'missing':>8} {'coverage':>10}")
+    print("─" * 68)
+
+    for name, df in targets.items():
+        if df is None:
+            continue
+        total_rows = df.shape[0]
+        for col in df.columns:
+            if col in {"datetime", "date", "time"}:
+                continue
+
+            missing = df[col].isna().sum()
+            coverage = (1 - missing / total_rows) * 100 if total_rows > 0 else 0.0
+
+            bar_len = int(coverage / 10)
+            bar = "█" * bar_len + "░" * (10 - bar_len)
+
+            print(f"{name:<10} {col:<25} {total_rows:>8} {missing:>8} {coverage:>8.1f}%  {bar}")
+        print()
 
 def plot_ranges(device: str, *df_names: str, window: str = "10min", center: str = "mean", figsize: tuple[int, int] = (10, 4)) -> None:
     """
