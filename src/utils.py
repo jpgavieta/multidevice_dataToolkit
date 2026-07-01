@@ -650,7 +650,7 @@ def merge(
     **named_dicts
 ):
     """
-    Merge function for the unnest() output (dict of {table_name: df}) into one
+    Merge function for the unwrap() output (dict of {table_name: df}) into one
     wide DataFrame joined on "datetime".
     Supports:
     -   One positional dict (unnamed device): no column suffixing
@@ -865,28 +865,10 @@ from typing import TypeVar, Callable
 
 T = TypeVar('T')
 
-# def scroll_output(func: Callable[..., T], *args, height: str = "400px", **kwargs) -> T:
-#     """Execute a function, capture its output in a scrollable box, and return the result."""
-#     old_stdout = sys.stdout
-#     sys.stdout = StringIO()
-    
-#     result = func(*args, **kwargs)
-    
-#     output = cast(StringIO, sys.stdout).getvalue()
-#     sys.stdout = old_stdout
-    
-#     style = f"max-height: {height}; overflow-y: auto; border: 1px solid #ccc; padding: 8px; background: #f5f5f5; color: #000; font-family: monospace; white-space: pre-wrap;"
-#     display(HTML(f'<div style="{style}">{output}</div>'))
-    
-#     return result
-
-T = TypeVar('T')
-
-def scroll_output(func: Callable[..., T], *args, height: str = "400px", **kwargs) -> T:
+def scroll_output(func: Callable[..., T], *args, height: str = "400px", center: bool = True, **kwargs) -> T:
     """
-    Execute a function, capture BOTH its print() output and any display()
-    calls (e.g. rich DataFrame tables), render everything inside ONE
-    scrollable HTML box, and return the function's result.
+    Execute a function, capture output, and render inside a scrollable box.
+    Set center=True to horizontally center all content.
     """
     with capture_output() as captured:
         result = func(*args, **kwargs)
@@ -894,23 +876,34 @@ def scroll_output(func: Callable[..., T], *args, height: str = "400px", **kwargs
     parts = []
 
     if captured.stdout:
+        # If centering, wrap pre in a div or use text-align on parent
         parts.append(f"<pre>{html_lib.escape(captured.stdout)}</pre>")
 
     for output in captured.outputs:
         data = output.data
         if "text/html" in data:
             parts.append(data["text/html"])
+        elif "image/png" in data:
+            b64 = data["image/png"]
+            # Images are inline by default, text-align on parent works
+            parts.append(f'<img src="data:image/png;base64,{b64}" style="max-width:100%;">')
         elif "text/plain" in data:
             parts.append(f"<pre>{html_lib.escape(data['text/plain'])}</pre>")
 
     inner_html = "".join(parts)
 
-    style = (
+    # Base styles
+    base_style = (
         f"max-height: {height}; overflow-y: auto; border: 1px solid #ccc; "
         f"padding: 8px; background: #f5f5f5; color: #000; "
-        f"font-family: monospace; white-space: pre-wrap;"
+        f"font-family: monospace; white-space: normal;"
     )
+    
+    # Add centering styles if requested
+    if center:
+        # Flexbox is robust for centering block elements like tables/divs
+        base_style += " display: flex; flex-direction: column; align-items: center; text-align: center;"
 
-    display(HTML(f'<div style="{style}">{inner_html}</div>'))
+    display(HTML(f'<div style="{base_style}">{inner_html}</div>'))
 
-    return result
+    return result   

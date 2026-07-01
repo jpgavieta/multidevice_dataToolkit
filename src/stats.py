@@ -1,24 +1,34 @@
+# src/stats.py
 import pandas as pd
-import matplotlib.pyplot as plt
-
-import numpy as np
-from src.utils import get
 from typing import Mapping
-from IPython.display import display
+
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+import matplotlib.patches as mpatches
+
+import math
+
 
 # ============================================================================================================
 # Helpers
 
 def _get_numeric_cols(df: pd.DataFrame) -> list[str]:
-    """Return all numeric columns except datetime, date, time."""
     skip = {"datetime", "date", "time"}
-    return [
-        col for col in df.columns
-        if col not in skip and pd.api.types.is_numeric_dtype(df[col])
-    ]
+    cols = []
+    for col in df.columns:
+        if col in skip:
+            continue
+        if pd.api.types.is_numeric_dtype(df[col]):
+            if df[col].dtype == "bool":
+                continue
+            # also exclude pandas nullable boolean
+            if pd.api.types.is_bool_dtype(df[col].dtype):
+                continue
+            cols.append(col)
+    return cols
+
 
 def _resolve_targets(dfs: Mapping[str, pd.DataFrame], df_names: tuple[str, ...], skip: set[str]) -> dict[str, pd.DataFrame] | None:
-    """Resolve which dfs to operate on."""
     if df_names:
         invalid = [n for n in df_names if n not in dfs]
         if invalid:
@@ -26,9 +36,6 @@ def _resolve_targets(dfs: Mapping[str, pd.DataFrame], df_names: tuple[str, ...],
             return None
         return {n: dfs[n] for n in df_names}
     return {k: v for k, v in dfs.items() if k not in skip}
-
-
-import pandas as pd
 
 def filter_date_range(
     device: dict[str, pd.DataFrame],
@@ -61,26 +68,59 @@ def filter_date_range(
     return filtered
 
 
+# ============================================================================================================
+
+# def report_loss(dfs, *df_names): # good night sweet prince, you were my favourite
+#     """
+#     Reports data quality metrics: row counts, missing values, and coverage %.
+#     Includes a visual bar for coverage.
+#     """
+#     if not dfs:
+#         print("⚠️ No data to report on.")
+#         return
+#     if not isinstance(dfs, dict):
+#         raise TypeError(f"dfs must be a dict of DataFrames; got {type(dfs)}")
+
+#     skip = {"all"}
+#     targets = _resolve_targets(dfs, df_names, skip)
+#     if targets is None:
+#         return
+
+#     print(f"{'df':<10} {'column':<25} {'rows':>8} {'missing':>8} {'coverage':>10}")
+#     print("─" * 68)
+
+#     for name, df in targets.items():
+#         if df is None:
+#             continue
+#         total_rows = df.shape[0]
+#         for col in df.columns:
+#             if col in {"datetime", "date", "time"}:
+#                 continue
+
+#             missing = df[col].isna().sum()
+#             coverage = (1 - missing / total_rows) * 100 if total_rows > 0 else 0.0
+
+#             bar_len = int(coverage / 10)
+#             bar = "█" * bar_len + "░" * (10 - bar_len)
+
+#             print(f"{name:<10} {col:<25} {total_rows:>8} {missing:>8} {coverage:>8.1f}%  {bar}")
+#         print()
+
 
 def report_loss(dfs, *df_names):
     """
-    Reports data quality metrics: row counts, missing values, and coverage %.
-    Includes a visual bar for coverage.
+    Returns a DataFrame of data quality metrics: row counts, missing values, and coverage %.
     """
     if not dfs:
-        print("⚠️ No data to report on.")
-        return
+        return pd.DataFrame()
     if not isinstance(dfs, dict):
         raise TypeError(f"dfs must be a dict of DataFrames; got {type(dfs)}")
 
-    skip = {"all"}
-    targets = _resolve_targets(dfs, df_names, skip)
+    targets = _resolve_targets(dfs, df_names, skip={"all"})
     if targets is None:
-        return
+        return pd.DataFrame()
 
-    print(f"{'df':<10} {'column':<25} {'rows':>8} {'missing':>8} {'coverage':>10}")
-    print("─" * 68)
-
+    rows = []
     for name, df in targets.items():
         if df is None:
             continue
@@ -88,27 +128,207 @@ def report_loss(dfs, *df_names):
         for col in df.columns:
             if col in {"datetime", "date", "time"}:
                 continue
-
-            missing = df[col].isna().sum()
+            missing = int(df[col].isna().sum())
             coverage = (1 - missing / total_rows) * 100 if total_rows > 0 else 0.0
+            rows.append({
+                "df":       name,
+                "column":   col,
+                "rows":     total_rows,
+                "missing":  missing,
+                "coverage": coverage,
+            })
 
-            bar_len = int(coverage / 10)
-            bar = "█" * bar_len + "░" * (10 - bar_len)
+    return pd.DataFrame(rows)
 
-            print(f"{name:<10} {col:<25} {total_rows:>8} {missing:>8} {coverage:>8.1f}%  {bar}")
-        print()
 
-import pandas as pd
+def plot_loss(df: pd.DataFrame, ncols: int = 3):
+    """
+    Plots coverage % per column, grouped by (df, base_column) into subplots.
+    Columns with an underscore suffix (e.g. temp_c_d1) are treated as
+    base_column + device_label and grouped into the same subplot.
+    """
+    if df.empty:
+        print("⚠️ No data to plot.")
+        return None
 
-def report_ranges(dfs, window="10D", center="median", *df_names):
-    # reuse your local helpers exactly like your existing function does
+    df = df.copy()
+
+    if "_" in "".join(df["column"]):
+        split = df["column"].str.rsplit("_", n=1, expand=True)
+        df["base_column"]  = split[0]
+        df["device_label"] = split[1].fillna("")
+    else:
+        df["base_column"]  = df["column"]
+        df["device_label"] = ""
+
+    groups = list(df.groupby(["df", "base_column"], sort=False))
+    n      = len(groups)
+    ncols  = min(ncols, n)
+    nrows  = math.ceil(n / ncols)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 4, nrows * 3.5), squeeze=False)
+    axes_flat = axes.flatten()
+
+    for ax, ((table_name, col_name), grp) in zip(axes_flat, groups):
+        grp  = grp.reset_index(drop=True)
+        xs   = range(len(grp))
+        bars = ax.bar(xs, grp["coverage"], color="#4C72B0", alpha=0.75, width=0.5)
+
+        # Colour bars below 80% amber, below 50% red
+        for bar, (_, row) in zip(bars, grp.iterrows()):
+            if row["coverage"] < 50:
+                bar.set_color("#D94F3D")
+            elif row["coverage"] < 80:
+                bar.set_color("#E5A124")
+
+        ax.set_ylim(0, 105)
+        ax.axhline(100, color="#aaaaaa", linewidth=0.8, linestyle="--")
+        ax.set_xticks(xs)
+        ax.set_xticklabels(grp["device_label"], fontsize=7, rotation=30, ha="right")
+        ax.set_title(f"{table_name}\n{col_name}", fontsize=9)
+        # ax.set_ylabel("Coverage %", fontsize=8)
+        ax.tick_params(labelsize=7)
+
+    for j in range(n, len(axes_flat)):
+        axes_flat[j].axis("off")
+
+    legend = [
+        mpatches.Patch(color="#4C72B0", alpha=0.75, label="≥ 80%"),
+        mpatches.Patch(color="#E5A124",              label="50–80%"),
+        mpatches.Patch(color="#D94F3D",              label="< 50%"),
+    ]
+    fig.legend(handles=legend, fontsize=9, loc="upper center", ncol=3, bbox_to_anchor=(0.5, 1.02))
+    # fig.suptitle("Data Coverage by Column", fontsize=13, y=1.06)
+    plt.tight_layout()
+    plt.close(fig)
+    return fig
+
+
+# ============================================================================================================
+
+
+def report_global_range(dfs, *df_names):
+    """
+    Returns a DataFrame of global summary stats (min, Q25, median, mean, Q75, max)
+    for each column. Does not plot — use plot_global_range() separately.
+    """
     if not dfs:
         return pd.DataFrame()
     if not isinstance(dfs, dict):
         raise TypeError(f"dfs must be a dict of DataFrames; got {type(dfs)}")
 
-    skip = {"all"}
-    targets = _resolve_targets(dfs, df_names, skip)
+    targets = _resolve_targets(dfs, df_names, skip={"all"})
+    if targets is None:
+        return pd.DataFrame()
+
+    rows = []
+    for name, df in targets.items():
+        if df is None or "datetime" not in df.columns:
+            continue
+
+        df2 = df.dropna(subset=["datetime"]).sort_values("datetime").set_index("datetime")
+        for col in _get_numeric_cols(df2):
+            s = df2[col].astype(float).dropna()
+            if s.empty:
+                continue
+            rows.append({
+                "df":     name,
+                "column": col,
+                "n":      int(s.shape[0]),
+                "min":    float(s.min()),
+                "q25":    float(s.quantile(0.25)),
+                "median": float(s.median()),
+                "mean":   float(s.mean()),
+                "q75":    float(s.quantile(0.75)),
+                "max":    float(s.max()),
+            })
+
+    return pd.DataFrame(rows)
+
+def plot_global_range(df: pd.DataFrame, ncols: int = 3):
+    """
+    Plots a quartile range chart from a report_global_range() result.
+    If a column name contains an underscore (e.g. "temp_c_d1", produced by
+    merge()'s device suffixing), everything before the LAST underscore is
+    treated as the base column, and everything after it as a device label
+    — grouping same-named columns from different devices into one subplot,
+    with a bar per device. Columns with no underscore get their own subplot.
+    Subplots are grouped by table (df), so each table's columns appear
+    together in the grid.
+    Returns the Figure, or None if there's no data to plot.
+    """
+    if df.empty:
+        print("⚠️ No data to plot.")
+        return None
+
+    df = df.copy()
+
+    if "_" in "".join(df["column"]):
+        split = df["column"].str.rsplit("_", n=1, expand=True)
+        df["base_column"] = split[0]
+        df["device_label"] = split[1].fillna("")
+    else:
+        df["base_column"] = df["column"]
+        df["device_label"] = ""
+
+    
+    groups = list(df.groupby(["df", "base_column"], sort=False))
+    n = len(groups)
+    ncols = min(ncols, n)
+    nrows = math.ceil(n / ncols)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 4, nrows * 3.5), squeeze=False)
+    axes_flat = axes.flatten()
+
+    for ax, ((table_name, col_name), grp) in zip(axes_flat, groups):
+        grp = grp.reset_index(drop=True)
+
+        for i, (_, row) in enumerate(grp.iterrows()):
+            x = i
+
+            ax.plot([x, x], [row["min"], row["max"]], color="#aaaaaa", linewidth=1.5, zorder=1)
+            ax.bar(x, row["q75"] - row["q25"], bottom=row["q25"],
+                color="#4C72B0", alpha=0.6, width=0.5, zorder=2)
+            ax.plot([x - 0.22, x + 0.22], [row["median"], row["median"]],
+                    color="#0C254D", linewidth=1.5, zorder=3)
+            ax.plot(x, row["mean"], marker="D", color="#E56B24", markersize=6, zorder=4)
+
+        ax.set_xticks(range(len(grp)))
+        ax.set_xticklabels(grp["device_label"], fontsize=7, rotation=30, ha="right")
+        ax.set_title(f"{table_name}\n{col_name}", fontsize=9)
+        # ax.set_ylabel("Value", fontsize=8)
+        ax.tick_params(labelsize=7)
+
+    for j in range(n, len(axes_flat)):
+        axes_flat[j].axis("off")
+
+    legend = [
+        mpatches.Patch(color="#4C72B0", alpha=0.6, label="IQR (Q25–Q75)"),
+        Line2D([0], [0], color="#0C254D", linewidth=1.5, label="Median"),
+        Line2D([0], [0], marker="D", color="#E56B24", linestyle="None", label="Mean"),
+        Line2D([0], [0], color="#aaaaaa", linewidth=1.5, label="Min–Max"),
+    ]
+    fig.legend(handles=legend, fontsize=9, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 1.02))
+    # fig.suptitle("Global Range Summary", fontsize=13, y=1.06)
+    plt.tight_layout()
+    plt.close(fig)
+    return fig
+
+
+# ============================================================================================================
+
+
+def report_rolling_range(dfs, window="10D", center="median", *df_names):
+    """
+    Returns a time-indexed DataFrame of rolling min/max/mean/median per column.
+    Does not plot — use plot_rolling_range() separately.
+    """
+    if not dfs:
+        return pd.DataFrame()
+    if not isinstance(dfs, dict):
+        raise TypeError(f"dfs must be a dict of DataFrames; got {type(dfs)}")
+
+    targets = _resolve_targets(dfs, df_names, skip={"all"})
     if targets is None:
         return pd.DataFrame()
 
@@ -116,151 +336,104 @@ def report_ranges(dfs, window="10D", center="median", *df_names):
     if center_mode not in {"mean", "median"}:
         center_mode = "median"
 
-    rows = []
-
+    frames = []
     for name, df in targets.items():
-        if df is None:
-            continue
-        if "datetime" not in df.columns:
+        if df is None or "datetime" not in df.columns:
             continue
 
-        df = df.dropna(subset=["datetime"]).sort_values("datetime").set_index("datetime")
-        numeric_cols = _get_numeric_cols(df)
-
-        for col in numeric_cols:
-            s = df[col].astype(float).dropna()
-            n = int(s.shape[0])
-            if n == 0:
+        df2 = df.dropna(subset=["datetime"]).sort_values("datetime").set_index("datetime")
+        for col in _get_numeric_cols(df2):
+            s = df2[col].astype(float).dropna().sort_index()
+            if s.empty:
                 continue
 
-            g_min = float(s.min())
-            g_q25 = float(s.quantile(0.25))
-            g_med = float(s.median())
-            g_mean = float(s.mean())
-            g_q75 = float(s.quantile(0.75))
-            g_max = float(s.max())
-
-            s = s.sort_index()
             r = s.rolling(window=window, min_periods=1)
+            frames.append(
+                pd.DataFrame({
+                    "df":          name,
+                    "column":      col,
+                    "roll_min":    r.min(),
+                    "roll_max":    r.max(),
+                    "roll_mean":   r.mean(),
+                    "roll_median": r.median(),
+                })
+            )
 
-            roll_min = r.min()
-            roll_max = r.max()
-            roll_med = r.median()
-            roll_mean = r.mean()
-            roll_center = roll_mean if center_mode == "mean" else roll_med
+    if not frames:
+        return pd.DataFrame()
 
-            rows.append({
-                "df": name,
-                "column": col,
-                "n": n,
+    return pd.concat(frames).sort_index()
 
-                "global_min": g_min,
-                "global_q25": g_q25,
-                "global_med": g_med,
-                "global_mean": g_mean,
-                "global_q75": g_q75,
-                "global_max": g_max,
-
-                "roll_min_med": float(roll_min.median()),
-                "roll_center_med": float(roll_center.median()),
-                "roll_max_med": float(roll_max.median()),
-                "roll_center_mean": float(roll_center.mean()),
-                "roll_window_min": float(roll_min.min()),
-                "roll_window_max": float(roll_max.max()),
-            })
-
-    return pd.DataFrame(rows)
-
-
-
-def plot_ranges(dfs, window=None, center=None, figsize=None, plot=True, *df_names):
+def plot_rolling_range(df: pd.DataFrame, ncols: int = 2):
     """
-    Plot data ranges for the given DataFrames.
-
-    Parameters:
-    -----------
-    dfs : dict[str, pd.DataFrame]
-        Dictionary of {table_name: DataFrame}
-    window : int, optional
-        Rolling window size (default: 10)
-    center : bool, optional
-        Choose the center line: if center == "mean" uses rolling mean, else uses rolling median
-        (use "mean" or "median" or True/False).
-    figsize : tuple, optional
-        Figure size
-    plot : bool, optional
-        Whether to display plots (default: True)
-    *df_names : str
-        Specific table names to plot (if empty, plots all)
+    Plots rolling range line charts, grouped by (df, base_column) into subplots
+    — one line/band per device within each subplot (matching plot_global_range
+    and plot_loss grouping logic).
     """
-    if not dfs:
-        return
-    if not isinstance(dfs, dict):
-        raise TypeError(f"dfs must be a dict of DataFrames; got {type(dfs)}")
+    if df.empty:
+        print("⚠️ No data to plot.")
+        return None
 
-    if window is None:
-        window = 10
+    df = df.copy()
 
-    skip = {"all"}
-    targets = _resolve_targets(dfs, df_names, skip)
-    if targets is None:
-        return
+    if "_" in "".join(df["column"]):
+        split = df["column"].str.rsplit("_", n=1, expand=True)
+        df["base_column"] = split[0]
+        df["device_label"] = split[1].fillna("")
+    else:
+        df["base_column"] = df["column"]
+        df["device_label"] = ""
 
-    for name, df in targets.items():
-        if df is None:
-            continue
+    groups = list(df.groupby(["df", "base_column"], sort=False))
+    n = len(groups)
+    ncols = min(ncols, n)
+    nrows = math.ceil(n / ncols)
 
-        numeric_cols = _get_numeric_cols(df)
-        if not numeric_cols:
-            continue
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 6, nrows * 3.5), squeeze=False)
+    axes_flat = axes.flatten()
 
-        has_time = "datetime" in df.columns
-        if has_time:
-            df = df.dropna(subset=["datetime"]).sort_values("datetime").set_index("datetime")
-        else:
-            df = df.reset_index(drop=True)
+    # Assign each device a consistent color across all subplots
+    all_devices = list(dict.fromkeys(df["device_label"]))  # preserves first-seen order
+    palette = plt.cm.tab10.colors
+    device_colors = {dev: palette[i % len(palette)] for i, dev in enumerate(all_devices)}
 
-        # x-axis: datetime index if present
-        x = df.index.to_numpy() if has_time else np.arange(len(df))
+    for ax, ((table_name, base_col), grp) in zip(axes_flat, groups):
+        devices = grp["device_label"].unique()
 
-        # choose which statistic to draw as the "center" line
-        if isinstance(center, str):
-            center_mode = center.lower()
-        elif center is True:
-            center_mode = "mean"
-        else:
-            center_mode = "median"
+        for device in devices:
+            dev_grp = grp[grp["device_label"] == device].sort_index()
+            color = device_colors[device]
 
-        for col in numeric_cols:
-            s = df[col].astype(float)
-            s = s.dropna()
-            if has_time:
-                s = s.sort_index()
+            ax.fill_between(dev_grp.index, dev_grp["roll_min"], dev_grp["roll_max"],
+                            alpha=0.15, color=color)
+            ax.plot(dev_grp.index, dev_grp["roll_mean"], color=color, linewidth=1.5, linestyle="-")
+            ax.plot(dev_grp.index, dev_grp["roll_median"], color=color, linewidth=1.5, linestyle="--", alpha=0.8)
 
-            roll = s.rolling(window=window, min_periods=1)
+        ax.set_title(f"{table_name}\n{base_col}", fontsize=9)
+        ax.tick_params(labelsize=7)
+        ax.grid(True, alpha=0.3)
+        for label in ax.get_xticklabels():
+            label.set_rotation(30)
+            label.set_ha("right")
 
-            # Rolling IQR band (25th–75th)
-            q25 = roll.quantile(0.25).to_numpy(dtype=float)
-            q75 = roll.quantile(0.75).to_numpy(dtype=float)
+        # Per-subplot legend: which color is which device
+        device_handles = [
+            Line2D([0], [0], color=device_colors[d], linewidth=2, label=d if d else "device")
+            for d in devices
+        ]
+        if len(device_handles) > 1:  # no need to label a single device
+            ax.legend(handles=device_handles, fontsize=6, loc="upper right", frameon=False)
 
-            # Rolling center line
-            y_med = roll.median().to_numpy(dtype=float)
-            y_mean = roll.mean().to_numpy(dtype=float)
-            y_center = y_mean if center_mode == "mean" else y_med
+    for j in range(n, len(axes_flat)):
+        axes_flat[j].axis("off")
 
-            fig, ax = plt.subplots(figsize=figsize)
-            xs = s.index.to_numpy() if has_time else np.arange(len(s))
-
-            ax.fill_between(xs, q25, q75, alpha=0.5, color="steelblue", label="rolling IQR (25–75)")
-            ax.plot(xs, y_center, color="darkred", linewidth=0.5, label=f"rolling {center_mode}", zorder=5)
-
-            ax.set_title(f"{name} — {col}")
-            ax.set_xlabel("datetime" if has_time else "index")
-            ax.set_ylabel(col)
-            ax.legend(loc="upper right", fontsize=8)
-
-            fig.tight_layout()
-            if plot:
-                display(fig)
-            plt.close(fig)
-
+    role_legend = [
+        Line2D([0], [0], color="#555555", linewidth=1.5, label="Mean"),
+        Line2D([0], [0], color="#555555", linewidth=1.5, linestyle="--", alpha=0.8, label="Median"),
+        mpatches.Patch(color="#555555", alpha=0.15, label="Min–Max range"),
+    ]
+    fig.legend(handles=role_legend, fontsize=9, loc="upper center", ncol=3, bbox_to_anchor=(0.5, 1.02))
+    # fig.suptitle("Rolling Range Over Time", fontsize=13, y=1.06)
+    plt.tight_layout()
+    plt.close(fig)
+    return fig
