@@ -1,9 +1,10 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
+import numpy as np
 from src.utils import get
-
-from typing import Mapping, cast
+from typing import Mapping
+from IPython.display import display
 
 # ============================================================================================================
 # Helpers
@@ -27,19 +28,52 @@ def _resolve_targets(dfs: Mapping[str, pd.DataFrame], df_names: tuple[str, ...],
     return {k: v for k, v in dfs.items() if k not in skip}
 
 
-def report_loss(device, *df_names):
+import pandas as pd
+
+def filter_date_range(
+    device: dict[str, pd.DataFrame],
+    start: str | pd.Timestamp | None = None,
+    end: str | pd.Timestamp | None = None,
+) -> dict[str, pd.DataFrame]:
+    """
+    Returns a new {table_name: DataFrame} dict, each table filtered to rows
+    where 'datetime' falls within [start, end] (inclusive). Tables without
+    a 'datetime' column, or with start/end left as None, pass through
+    unfiltered on that bound.
+    """
+    start_ts = pd.Timestamp(start, tz="UTC") if start is not None else None
+    end_ts = pd.Timestamp(end, tz="UTC") if end is not None else None
+
+    filtered = {}
+    for table_name, df in device.items():
+        if "datetime" not in df.columns:
+            filtered[table_name] = df
+            continue
+
+        mask = pd.Series(True, index=df.index)
+        if start_ts is not None:
+            mask &= df["datetime"] >= start_ts
+        if end_ts is not None:
+            mask &= df["datetime"] <= end_ts
+
+        filtered[table_name] = df[mask].reset_index(drop=True)
+
+    return filtered
+
+
+
+def report_loss(dfs, *df_names):
     """
     Reports data quality metrics: row counts, missing values, and coverage %.
     Includes a visual bar for coverage.
     """
-    dfs = get(device)
-    if dfs is None:
+    if not dfs:
         print("⚠️ No data to report on.")
         return
     if not isinstance(dfs, dict):
-        raise TypeError(f"get(device) must return a dict of DataFrames; got {type(dfs)}")
+        raise TypeError(f"dfs must be a dict of DataFrames; got {type(dfs)}")
 
-    skip = {"all"}  # merged table — NaNs here come from the join, not real sensor dropout
+    skip = {"all"}
     targets = _resolve_targets(dfs, df_names, skip)
     if targets is None:
         return
@@ -64,21 +98,111 @@ def report_loss(device, *df_names):
             print(f"{name:<10} {col:<25} {total_rows:>8} {missing:>8} {coverage:>8.1f}%  {bar}")
         print()
 
-def plot_ranges(device: str, *df_names: str, window: str = "10min", center: str = "mean", figsize: tuple[int, int] = (10, 4)) -> None:
-    """
-    Plots a range-area chart for each numeric column in the target df(s):
-    a shaded band showing the rolling min/max envelope over time, with a
-    rolling mean/median line drawn through it.
-    """
-    dfs = get(device)
-    if dfs is None:
-        print("⚠️ No data to plot.")
-        return
+import pandas as pd
+
+def report_ranges(dfs, window="10D", center="median", *df_names):
+    # reuse your local helpers exactly like your existing function does
+    if not dfs:
+        return pd.DataFrame()
     if not isinstance(dfs, dict):
-        raise TypeError(f"get(device) must return a dict of DataFrames; got {type(dfs)}")
+        raise TypeError(f"dfs must be a dict of DataFrames; got {type(dfs)}")
 
     skip = {"all"}
-    targets = _resolve_targets(cast(Mapping[str, pd.DataFrame], get(device)), df_names, skip)
+    targets = _resolve_targets(dfs, df_names, skip)
+    if targets is None:
+        return pd.DataFrame()
+
+    center_mode = center.lower() if isinstance(center, str) else "median"
+    if center_mode not in {"mean", "median"}:
+        center_mode = "median"
+
+    rows = []
+
+    for name, df in targets.items():
+        if df is None:
+            continue
+        if "datetime" not in df.columns:
+            continue
+
+        df = df.dropna(subset=["datetime"]).sort_values("datetime").set_index("datetime")
+        numeric_cols = _get_numeric_cols(df)
+
+        for col in numeric_cols:
+            s = df[col].astype(float).dropna()
+            n = int(s.shape[0])
+            if n == 0:
+                continue
+
+            g_min = float(s.min())
+            g_q25 = float(s.quantile(0.25))
+            g_med = float(s.median())
+            g_mean = float(s.mean())
+            g_q75 = float(s.quantile(0.75))
+            g_max = float(s.max())
+
+            s = s.sort_index()
+            r = s.rolling(window=window, min_periods=1)
+
+            roll_min = r.min()
+            roll_max = r.max()
+            roll_med = r.median()
+            roll_mean = r.mean()
+            roll_center = roll_mean if center_mode == "mean" else roll_med
+
+            rows.append({
+                "df": name,
+                "column": col,
+                "n": n,
+
+                "global_min": g_min,
+                "global_q25": g_q25,
+                "global_med": g_med,
+                "global_mean": g_mean,
+                "global_q75": g_q75,
+                "global_max": g_max,
+
+                "roll_min_med": float(roll_min.median()),
+                "roll_center_med": float(roll_center.median()),
+                "roll_max_med": float(roll_max.median()),
+                "roll_center_mean": float(roll_center.mean()),
+                "roll_window_min": float(roll_min.min()),
+                "roll_window_max": float(roll_max.max()),
+            })
+
+    return pd.DataFrame(rows)
+
+
+
+def plot_ranges(dfs, window=None, center=None, figsize=None, plot=True, *df_names):
+    """
+    Plot data ranges for the given DataFrames.
+
+    Parameters:
+    -----------
+    dfs : dict[str, pd.DataFrame]
+        Dictionary of {table_name: DataFrame}
+    window : int, optional
+        Rolling window size (default: 10)
+    center : bool, optional
+        Choose the center line: if center == "mean" uses rolling mean, else uses rolling median
+        (use "mean" or "median" or True/False).
+    figsize : tuple, optional
+        Figure size
+    plot : bool, optional
+        Whether to display plots (default: True)
+    *df_names : str
+        Specific table names to plot (if empty, plots all)
+    """
+    if not dfs:
+        return
+    if not isinstance(dfs, dict):
+        raise TypeError(f"dfs must be a dict of DataFrames; got {type(dfs)}")
+
+    if window is None:
+        window = 10
+
+    skip = {"all"}
+    targets = _resolve_targets(dfs, df_names, skip)
     if targets is None:
         return
 
@@ -96,20 +220,47 @@ def plot_ranges(device: str, *df_names: str, window: str = "10min", center: str 
         else:
             df = df.reset_index(drop=True)
 
-        x = df.index
+        # x-axis: datetime index if present
+        x = df.index.to_numpy() if has_time else np.arange(len(df))
+
+        # choose which statistic to draw as the "center" line
+        if isinstance(center, str):
+            center_mode = center.lower()
+        elif center is True:
+            center_mode = "mean"
+        else:
+            center_mode = "median"
 
         for col in numeric_cols:
-            roll = df[col].rolling(window=window, min_periods=1)
-            lower = roll.min()
-            upper = roll.max()
-            line = roll.mean() if center == "mean" else roll.median()
+            s = df[col].astype(float)
+            s = s.dropna()
+            if has_time:
+                s = s.sort_index()
+
+            roll = s.rolling(window=window, min_periods=1)
+
+            # Rolling IQR band (25th–75th)
+            q25 = roll.quantile(0.25).to_numpy(dtype=float)
+            q75 = roll.quantile(0.75).to_numpy(dtype=float)
+
+            # Rolling center line
+            y_med = roll.median().to_numpy(dtype=float)
+            y_mean = roll.mean().to_numpy(dtype=float)
+            y_center = y_mean if center_mode == "mean" else y_med
 
             fig, ax = plt.subplots(figsize=figsize)
-            ax.fill_between(x, lower, upper, alpha=0.3, label=f"rolling min/max (window={window})")
-            ax.plot(x, line, linewidth=1.2, label=f"rolling {center}")
+            xs = s.index.to_numpy() if has_time else np.arange(len(s))
+
+            ax.fill_between(xs, q25, q75, alpha=0.5, color="steelblue", label="rolling IQR (25–75)")
+            ax.plot(xs, y_center, color="darkred", linewidth=0.5, label=f"rolling {center_mode}", zorder=5)
+
             ax.set_title(f"{name} — {col}")
             ax.set_xlabel("datetime" if has_time else "index")
             ax.set_ylabel(col)
             ax.legend(loc="upper right", fontsize=8)
+
             fig.tight_layout()
-            plt.show()
+            if plot:
+                display(fig)
+            plt.close(fig)
+
