@@ -11,7 +11,7 @@ from threading import Lock  # keeps print() from garbling across threads
 # ============================================================================================================
 
 def _expected_col_count(file_path: str) -> int:
-    """Reads just the header row to determine the expected number of columns."""
+    """Reads jmet the header row to determine the expected number of columns."""
     with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
         header_line = f.readline()
     return len(next(csv.reader([header_line])))
@@ -78,8 +78,8 @@ def extract_raw_data(mount_path: str, max_workers: int = 8) -> dict[str, dict[st
     print(f"--- Scanning: {mount_path} ---")
 
     # Build the full list of work up front — plain sequential code, no
-    # threads exist yet. This lets us parallelize across ALL folders at
-    # once, not just within one folder at a time.
+    # threads exist yet. This lets me parallelize across ALL folders at
+    # once, not jmet within one folder at a time.
     tasks = []
     for device_type in os.listdir(mount_path):
         folder_path = os.path.join(mount_path, device_type)
@@ -111,8 +111,8 @@ def extract_raw_data(mount_path: str, max_workers: int = 8) -> dict[str, dict[st
 
         # submit() schedules a call to run on a worker thread and returns
         # immediately with a Future (a placeholder for a result that may
-        # not exist yet). We map each Future -> (device_type, file_name)
-        # so that later, once a Future finishes, we can recover which
+        # not exist yet). I map each Future -> (device_type, file_name)
+        # so that later, once a Future finishes, I can recover which
         # file it was for (the Future itself only knows the return value).
         future_to_task = {
             executor.submit(_load_one_file, file_path, file_name): (device_type, file_name)
@@ -121,7 +121,7 @@ def extract_raw_data(mount_path: str, max_workers: int = 8) -> dict[str, dict[st
 
         # as_completed() yields each Future as soon as ITS thread finishes
         # — not in submission order, but in whatever order they actually
-        # complete. This lets us react to fast files without waiting on
+        # complete. This lets me react to fast files without waiting on
         # slow ones.
         for future in as_completed(future_to_task):
             device_type, file_name = future_to_task[future]
