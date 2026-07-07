@@ -1,7 +1,7 @@
 from functools import reduce
 import pandas as pd
 
-from src.utils import (
+from ..utils import (
     build_gis_df,
     add_timezone_col,
     get_cols,
@@ -10,9 +10,9 @@ from src.utils import (
     detect_json_col,
 )
 
-
 # ============================================================================================================
 # Df builders
+print("hello from Ponyopi parser")
 
 def build_pm_df(df):  # PM sensor = Plantower PMS7008/PMS5003
     pm_df = get_cols(df, ["datetime", "pm.pm", "atm", "ug", "m3"], ["cf", "count", "um", "ppm"])

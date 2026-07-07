@@ -1,0 +1,22 @@
+[project]
+name = "multidevice-datatoolkit"
+version = "0.1.0"
+description = "ETL pipeline for multi-device environmental and biometric data"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "pyyaml",
+    "python-dotenv",
+    "tenacity",
+    "requests",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src", "."]
+include = ["extract*", "general*", "load*", "transform*", "docs*"]

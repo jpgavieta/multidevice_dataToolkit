@@ -1,7 +1,7 @@
 import pandas as pd
 
-from src.etl.parsers import atmotube
-from src.etl.parsers import ponyopi
+from .parsers import atmotube
+from .parsers import ponyopi
 
 # This should work REGARDLESS of the extract data method (read files or call apis)
 

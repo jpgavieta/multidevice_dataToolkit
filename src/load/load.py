@@ -1,6 +1,5 @@
-from src.etl.extract import extract_raw_data
-from src.etl.transform import transform_device_data
-
+from extract import extract_raw_data
+from transform import transform_device_data
 
 # This orchestrates extract and transform ->  returns data ready for the visualization
 

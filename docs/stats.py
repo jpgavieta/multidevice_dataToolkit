@@ -1,5 +1,5 @@
-# src/stats.py
 import pandas as pd
+import numpy as np
 from typing import Mapping
 
 import matplotlib.pyplot as plt
@@ -8,9 +8,8 @@ import matplotlib.patches as mpatches
 
 import math
 
-
 # ============================================================================================================
-# Helpers
+# lil' dudes
 
 def _get_numeric_cols(df: pd.DataFrame) -> list[str]:
     skip = {"datetime", "date", "time"}
@@ -67,45 +66,8 @@ def filter_date_range(
 
     return filtered
 
-
 # ============================================================================================================
-
-# def report_loss(dfs, *df_names): # good night sweet prince, you were my favourite
-#     """
-#     Reports data quality metrics: row counts, missing values, and coverage %.
-#     Includes a visual bar for coverage.
-#     """
-#     if not dfs:
-#         print("⚠️ No data to report on.")
-#         return
-#     if not isinstance(dfs, dict):
-#         raise TypeError(f"dfs must be a dict of DataFrames; got {type(dfs)}")
-
-#     skip = {"all"}
-#     targets = _resolve_targets(dfs, df_names, skip)
-#     if targets is None:
-#         return
-
-#     print(f"{'df':<10} {'column':<25} {'rows':>8} {'missing':>8} {'coverage':>10}")
-#     print("─" * 68)
-
-#     for name, df in targets.items():
-#         if df is None:
-#             continue
-#         total_rows = df.shape[0]
-#         for col in df.columns:
-#             if col in {"datetime", "date", "time"}:
-#                 continue
-
-#             missing = df[col].isna().sum()
-#             coverage = (1 - missing / total_rows) * 100 if total_rows > 0 else 0.0
-
-#             bar_len = int(coverage / 10)
-#             bar = "█" * bar_len + "░" * (10 - bar_len)
-
-#             print(f"{name:<10} {col:<25} {total_rows:>8} {missing:>8} {coverage:>8.1f}%  {bar}")
-#         print()
-
+# Data Loss / Coverage
 
 def report_loss(dfs, *df_names):
     """
@@ -205,7 +167,7 @@ def plot_loss(df: pd.DataFrame, ncols: int = 3):
 
 
 # ============================================================================================================
-
+# Global Distirbution
 
 def report_global_range(dfs, *df_names):
     """
@@ -316,6 +278,7 @@ def plot_global_range(df: pd.DataFrame, ncols: int = 3):
 
 
 # ============================================================================================================
+# Rolling Window
 
 
 def report_rolling_range(dfs, window="10D", center="median", *df_names):
@@ -394,7 +357,9 @@ def plot_rolling_range(df: pd.DataFrame, ncols: int = 2):
 
     # Assign each device a consistent color across all subplots
     all_devices = list(dict.fromkeys(df["device_label"]))  # preserves first-seen order
-    palette = plt.cm.tab10.colors
+# Correct way to get colors from a LinearSegmentedColormap
+    cmap = plt.get_cmap('tab10')
+    palette = cmap(np.linspace(0, 1, 10))
     device_colors = {dev: palette[i % len(palette)] for i, dev in enumerate(all_devices)}
 
     for ax, ((table_name, base_col), grp) in zip(axes_flat, groups):

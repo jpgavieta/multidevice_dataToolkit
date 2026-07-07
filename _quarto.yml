@@ -8,5 +8,6 @@ execute:
 format:
   html:
     code-fold: true
+    
 # quarto render notebooks/analysis/<whatever>.ipynb --output-dir docs/
 
