@@ -14,7 +14,7 @@ Built for a multi-site study tracking environmental exposure (Atmotube air quali
 - *Ingests*: Scheduled daily extraction from each device's cloud API (Atmotube, Google Health/Fitbit), on a daily cron schedule, with built-in rate limiting. 
 - *Processes*: Standardizes and validates per device type — parsing raw API responses into clean, typed, timezone-normalized dataframes ready for analysis.
 - *Stores*: Maintains a remote PostgreSQL + PostGIS database (via Docker) for raw + processed data with device/participant assignment tracking to reconcile data across a rotating-device study design.
-- *Visualizes*: Provides non-technical team access via Metabase (planned) and publishes analysis via GitHub Pages (`docs/`), separate from the automated pipeline.
+- *Visualizes*: Provides non-technical abilities to visualize the data — internal-facing DB dashboard via Metabase (planned) and public-facing analytical reports via GitHub Pages (`docs/`) — eparate from the automated pipeline.
 
 2. Why does this exists?
 
@@ -41,12 +41,15 @@ multidevice_dataToolkit/
 ├── README.md
 ├── requirements.txt
 ├── crontab.txt                   # documented cron schedule, for api fetching reference
+├── quarto.yml                    # quart notebook settings, for public-facing data reports
 │
-├── deploy/    # DATABASE INIT ========================================================================================================== 
-│   ├── docker-compose.yml         # PostGIS defined as services
-│   └── postgres/
-│       └── init/
-│           └── 01_enable_postgis.sql   # runs once on first container start
+├── deploy/    # DATABASE VIZ ========================================================================================================== 
+│   ├── docker-compose.yml         # Postgres+PostGIS, Metabase, defined as services
+│   ├── postgres/
+│   │   └── init/
+│   │       └── 01_enable_postgis.sql   # runs once on first container start
+│   └── metabase/
+│       └── metabase-data/          # Metabase's own UI app
 │
 ├── config/                   
 │   └── devices.yaml               # device registry + site→credential mapping
