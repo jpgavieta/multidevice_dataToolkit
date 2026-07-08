@@ -25,7 +25,7 @@ Built specifically for a small-scale research (sole maintainer, few dozens of de
 
 ## Data Flow from Multiple Devices
 
-The data pipeline starts from whereever the data is kept (either shared folder per device type, the cloud API of each device, or a database table of the device type). It is triggered upon command via `load.py` that tells `extract.py` to pull data from wherever, `transform.py` applies the parser logic specific to device, and returns an organized and subdivided dataframe per device.  
+The data pipeline starts from whereever the data is kept. It is triggered upon command via `load.py` that tells `extract.py` to pull data from wherever, `transform.py` applies the parser logic specific to device, and returns an organized and subdivided dataframe per device.  
 
 [![Flow of Data from Multiple Devices](multidevice_dataflow.png)](multidevice_dataflow.png)
 ---
