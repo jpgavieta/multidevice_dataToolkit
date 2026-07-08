@@ -1,13 +1,27 @@
 # MultiDevice DataToolkit
 
-A python-based portable and customizable data processing pipeline for variable standardization and validation of multiple devices.
-Includes a notebook to demonstrate how to use and apply the data for statistical analysis. 
+> 🚧 Work in progress !
+> This is an evolving research data pipeline, not a finished product. 
+> Structure and scope are actively changing as new devices and features come online.
 
-The **etl (extract transform load) data pipeline** standardizes data variables, validates data types, and categorizes variables into usable dataframes (e.g. builds a GIS dataframe for mapping) — ready for data anlaysis and visualization between devices. 
+A Python-based, portable, and customizable pipeline for pulling, standardizing, and storing multi-device research data — combining an
+**API scheduler**, an **ETL pipeline**, and a **database deployer** into one lightweight data warehouse.
 
-The etl logic based on `device_types` as separate streams of data, not based on participants. 
+Built for a multi-site study tracking environmental exposure (Atmotube air quality sensors) and biometric data (Fitbit / Google Health) across rotating device assignments and multiple participants — but designed to be extended to any new device type with its own API and parser.
 
-It is expandable for more device types, which each require its own custom  parser. 
+1. What does this project do?
+
+- *Ingests*: Scheduled daily extraction from each device's cloud API (Atmotube, Google Health/Fitbit), on a daily cron schedule, with built-in rate limiting. 
+- *Processes*: Standardizes and validates per device type — parsing raw API responses into clean, typed, timezone-normalized dataframes ready for analysis.
+- *Stores*: Maintains a remote PostgreSQL + PostGIS database (via Docker) for raw + processed data with device/participant assignment tracking to reconcile data across a rotating-device study design.
+- *Visualizes*: Provides non-technical team access via Metabase (planned) and publishes analysis via GitHub Pages (`docs/`), separate from the automated pipeline.
+
+2. Why does this exists?
+
+Built specifically for a small-scale research (sole maintainer, few dozens of devices) where heavy ETL frameworks (Meltano, Iceberg) are overkill. It delivers the smallest, most maintainable system that ensures reproducibility and allows easy extension to new device types without modifying core logic.
+
+
+---
 
 ## Data Flow from Multiple Devices
 
@@ -21,25 +35,23 @@ The data pipeline starts from whereever the data is kept (either shared folder p
 ```
 multidevice_dataToolkit/
 ├── pyproject.toml
-├── .env                          # gitignored — actual secret client credentials + DB connection vars, Metabase admin creds
+├── .env                          # gitignored — actual secret client credentials + DB connection vars
 ├── .env.example                  # committed — variable names only
 ├── .gitignore
 ├── README.md
 ├── requirements.txt
-├── crontab.txt                   # documented cron schedule, for reference
+├── crontab.txt                   # documented cron schedule, for api fetching reference
 │
-├── deploy/
-│   ├── docker-compose.yml         # Postgres+PostGIS, Metabase, defined as services
-│   ├── postgres/
-│   │   └── init/
-│   │       └── 01_enable_postgis.sql   # runs once on first container start
-│   └── metabase/
-│       └── metabase-data/          # Metabase's own app DB (bind-mounted volume, 
+├── deploy/    # DATABASE INIT ========================================================================================================== 
+│   ├── docker-compose.yml         # PostGIS defined as services
+│   └── postgres/
+│       └── init/
+│           └── 01_enable_postgis.sql   # runs once on first container start
 │
-├── config/
+├── config/                   
 │   └── devices.yaml               # device registry + site→credential mapping
 │
-├── src/
+├── src/        # ETL PIPELINE ===========================================================================================================
 │   ├── main.py                    # entry point: loop over devices.yaml, run E→T→L
 │   │
 │   ├── general/
