@@ -1,13 +1,8 @@
-"""
-main.py — placeholder entry point.
-Currently only verifies that the reorganized package structure imports correctly.
-TODO: wire up device_registry, run_logger, and real extract/transform/load logic.
-"""
+import os
 
-from general import utils as general_utils
-from extract import utils as extract_utils
-from transform import utils as transform_utils
-# from load import utils as load_utils # no need rn
+REQUIRED_ENV_VARS = ["DB_HOST", "DB_USER", "DB_PASSWORD"]  # extend as needed
 
-if __name__ == "__main__":
-    print("hello from main.py. Also, all src utils imported successfully.")
+def validate_env():
+    missing = [v for v in REQUIRED_ENV_VARS if not os.environ.get(v)]
+    if missing:
+        raise EnvironmentError(f"Missing required env vars: {missing}")
