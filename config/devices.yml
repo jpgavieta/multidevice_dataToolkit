@@ -3,7 +3,7 @@
 # ============================================================================================================
 # DEVICES + access info
 
-fitbit_devices: # for fitbit accounts, go to extract/config/secrets/fitbit/accounts.yml 
+fitbit_devices: # for fitbit accounts --> extract/config/secrets/fitbit/accounts.yml 
   - id: fitbit_kol_01
     type: fitbit
     site: kolkata
