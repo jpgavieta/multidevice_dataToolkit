@@ -14,7 +14,7 @@ Built for a multi-site study tracking environmental exposure (Atmotube air quali
 - *Ingests*: Schedules daily extraction from each device's cloud API (Atmotube, Google Health/Fitbit), on a daily cron schedule, with built-in rate limiting. 
 - *Processes*: Standardizes and validates per device type — parsing raw API responses into clean, typed, timezone-normalized dataframes ready for analysis.
 - *Stores*: Maintains a remote PostgreSQL + PostGIS database (via Docker) for raw + processed data with device/participant assignment tracking to reconcile data across a rotating-device study design.
-- *Visualizes*: Provides non-technical abilities to visualize the data — internal-facing DB dashboard via Metabase (planned) and public-facing analytical reports via GitHub Pages (`docs/`) — eparate from the automated pipeline.
+- *Visualizes*: Provides non-technical abilities to visualize the data — internal-facing DB dashboard via Metabase (planned) and public-facing analytical reports via GitHub Pages (`docs/`) — separate from the automated pipeline.
 
 2. **Why does this exists?**
 
