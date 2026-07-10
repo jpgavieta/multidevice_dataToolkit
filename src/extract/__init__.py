@@ -1,1 +1,1 @@
-from .extract import extract_raw_data
+from .extract import extract_all_devices # script ochestrator

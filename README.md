@@ -14,11 +14,11 @@ Built for a multi-site study tracking environmental exposure (Atmotube air quali
 - *Ingests*: Schedules daily extraction from each device's cloud API (Atmotube, Google Health/Fitbit), on a daily cron schedule, with built-in rate limiting. 
 - *Processes*: Standardizes and validates per device type — parsing raw API responses into clean, typed, timezone-normalized dataframes ready for analysis.
 - *Stores*: Maintains a remote PostgreSQL + PostGIS database (via Docker) for raw + processed data with device/participant assignment tracking to reconcile data across a rotating-device study design.
-- *Visualizes*: Provides non-technical abilities to visualize the data — internal-facing DB dashboard via Metabase (planned) and public-facing analytical reports via GitHub Pages (`docs/`) — separate from the automated pipeline.
+- *Visualizes*: Provides non-technical abilities to visualize the data — internal-facing DB dashboard via Grafana (planned) and public-facing analytical reports via GitHub Pages (`docs/`) — separate from the automated pipeline.
 
 2. **Why does this exists?**
 
-Built specifically for a small-scale research (sole maintainer, few dozens of devices) where heavy ETL frameworks (Meltano, Iceberg) are overkill. It delivers the smallest, most maintainable system that ensures reproducibility and allows easy extension to new device types without modifying core logic.
+Built specifically for a small-scale research (sole maintainer, some dozen devices) where heavy ETL frameworks (Meltano, Iceberg) are overkill. It delivers the smallest, most maintainable system that ensures reproducibility and allows easy extension to new device types without modifying core logic.
 
 
 ---
@@ -33,29 +33,56 @@ The data pipeline starts from whereever the data is kept. It is triggered upon c
 ## Structure of this Repository
 
 ```
-multidevice_dataToolkit/
-├── pyproject.toml
-├── .env                          # gitignored — actual secret client credentials + DB connection vars
-├── .env.example                  # committed — variable names only
-├── .gitignore
+./
 ├── README.md
-├── requirements.txt
-├── crontab.txt                   # documented cron schedule, for api fetching reference
-├── quarto.yml                    # quart notebook settings, for public-facing data reports
 │
-├── deploy/    # DATABASE VIZ ========================================================================================================== 
-│   ├── docker-compose.yml         # Postgres+PostGIS, Metabase, defined as services
+├── quarto.yml                    # for public-facing data reports
+│                   
+│                              ## DEV SETTINGS   
+├── .gitignore          
+├── pyproject.toml                # python packaged data building tools
+├── environment.yml               # conda environment for python+system-level libraries (not pip installable) 
+├── .env                          # gitignored — DB connection vars, Grafana admin creds
+│
+├── config/ 
+│   ├── devices.yaml               # device registry + site→credential mapping
+│   └── schedule.yaml              # human-editable schedule config (which job, how often)
+│~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+│
+├── deploy/                   ## DB+VIZ DEPLOYMENT
+│   ├── docker-compose.yml         # Postgres+PostGIS, Grafana, ETL — defined as services
+│   │
 │   ├── postgres/
 │   │   └── init/
-│   │       └── 01_enable_postgis.sql   # runs once on first container start
-│   └── metabase/
-│       └── metabase-data/          # Metabase's own UI app
+│   │       └── 001_enable_postgis.sql   # runs once on first container start
+│   │      
+│   └── grafana/
+│       ├── grafana-data/          # gitignored — Grafana's own sqlite db (users, sessions, dashboard state)
+│       ├── provisioning/
+│       │   ├── datasources/
+│       │   │   └── postgres.yml   # auto-registers the Postgres+PostGIS datasource on boot
+│       │   └── dashboards/
+│       │       └── dashboards.yml # points Grafana at dashboard-json/ to load on boot (NOTE: allowUIUpdates: true for drag-n-drop GUI edits)
+│       │   │   
+│       ├── dashboard-json/        # after designing a dashboard in GUI, json export and git commit it here to save it as a snapshop (allows for dashboard configs to survive redeployment)
+│       │   ├── EX: body_health.json
+│       │   ├── EX: air_quality.json
+│       │   └── EX: gis_location.json
+│       │      
+│       └── provision_access.py     # idempotent script: creates Teams (e.g. "Internal", "Participants"),
+│                                   # sets org roles, assigns folder permissions via Grafana HTTP API
+│                                   # — run once per environment (local, then Alliance) so access setup
+│                                   # isn't manual click-ops that has to be redone on deploy
 │
-├── config/                   
-│   └── devices.yaml               # device registry + site→credential mapping
-│
-├── src/        # ETL PIPELINE ===========================================================================================================
-│   ├── main.py                    # entry point: loop over devices.yaml, run E→T→L
+│~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+│                               ## ELT+ETL PIPELINE 
+├── src/
+│   ├── main.py                    # ENTRY POINT: starts the scheduler once and stays live (long running)
+│   │
+│   ├── scheduler/                  
+│   │   ├── __init__.py
+│   │   ├── scheduler.py            # builds APScheduler instance, loads jobs from schedule.yaml
+│   │   └── jobs.py                 # wraps E→T→L pipeline calls as schedulable job functions; tenacity retry/backoff in here
 │   │
 │   ├── general/
 │   │   ├── __init__.py
@@ -65,29 +92,34 @@ multidevice_dataToolkit/
 │   │
 │   ├── extract/
 │   │   ├── __init__.py
-│   │   ├── extract.py              # threaded per-device pulls, rate-limit aware
+│   │   ├── extract.py              # PULLS APIS: 
+│   │   │                           #   - threaded per-device pulls, rate-limit aware
+│   │   │                           #   - invoked by scheduler/jobs.py
 │   │   ├── clients/
 │   │   │   ├── __init__.py
 │   │   │   ├── atmotube_client.py
 │   │   │   └── fitbit_client.py
-│   │   ├── config/
-│   │   │   ├── __init__.py
-│   │   │   ├── tokens.py           # resolves site → env var name → secret
-│   │   │   └── secrets/            # gitignored — everything under here, no exceptions
-│   │   │       ├── fitbit/
-│   │   │       │   ├── client_secret.json # shared OAuth client, one file
-│   │   │       │   ├── accounts.yml       # device_id: google_account 
-│   │   │       │   └── tokens/      
-│   │   │       │       ├── fitbit_ko1_01.json
-│   │   │       │       ├── fitbit_ko1_02.json
-│   │   │       │       └── ...
-│   │   │       └── atmotube/
-│   │   │           └── ...
-│   │   └── utils.py
+│   │   └── config/
+│   │       ├── __init__.py
+│   │       ├── tokens.py           # resolves site → env var name → secret
+│   │       ├── fitbit_tokens.py    
+│   │       └── secrets/            # gitignored — everything under here, no exceptions
+│   │           ├── fitbit/
+│   │           │   ├── client_secret.json # shared OAuth client, one file
+│   │           │   ├── accounts.yml       # device_id: google_account
+│   │           │   └── tokens/
+│   │           │       ├── fitbit_ko1_01.json
+│   │           │       ├── fitbit_ko1_02.json
+│   │           │       └── ...
+│   │           └── atmotube/
+│   │               └── ...
 │   │
 │   ├── transform/
 │   │   ├── __init__.py
-│   │   ├── transform.py            # per-device parsing, UTC conversion
+│   │   ├── transform.py            # APPLIES PARSERS: 
+│   │   │                           #   - parthreaded per-device parsing
+│   │   │                           #   - standardizes to UTC datetime
+│   │   │                           #   - anonymization/pseudonymization step
 │   │   ├── parsers/
 │   │   │   ├── __init__.py
 │   │   │   ├── atmotube.py
@@ -96,13 +128,16 @@ multidevice_dataToolkit/
 │   │
 │   └── load/
 │       ├── __init__.py
-│       ├── load.py                 # single serialized write step, upserts
-│       ├── schema.sql              # devices, participants, device_assignments, pipeline_runs, readings tables # DB —  now includes PostGIS-specific DDL
-│        └── migrations/            # DB — schema change history, see below
-│            ├── 0001_init_schema.sql
-│            └── 0002_add_participant_view.sql
-│                
+│       ├── load.py                 # PUSHES TO DB:
+│       │                           #   - loads both raw (API pulls as JSONB) AND processed data (participant keyed)
+│       │                           #   - single serialized write step 
+│       │                           #   - upserts (update+insert), auto-adds new row if doesnt exist / auto-updates existing row if theres conflict 
+│       ├── schema.sql              # source of truth: devices, participants, device_assignments, pipeline_runs, readings tables — PostGIS DDL
+│       └── migrations/             # DB — schema change history
+│           ├── EX: 0001_init_schema.sql
+│           └── EX: 0002_add_participant_view.sql
 │
+│~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ├── docs/                           # GitHub Pages — manual notebooks + html rendering helpers in utils
 │   ├── atmotube
 │   │   ├── datasheet.md
@@ -110,10 +145,42 @@ multidevice_dataToolkit/
 │   ├── __init__.py
 │   ├── manual.ipynb
 │   ├── stats.py
-│   └── utils.py                    
+│   └── utils.py
 │
 └── notifications/
-    └── notify.py                    # email/Slack alert on pipeline_runs failure
+    └── notify.py                    # email/Slack alert: 
+                                     #  - fires on pipeline_runs failure
+                                     #  - triggered from within scheduler/jobs.py after a failed run
 ```
 
- 
+
+# How to setup dev environment (fresh machine / new teammate)
+
+## 1. Clone the repo
+```shell
+git clone <repo-url>
+cd multidevice_dataToolkit
+```
+
+## 2. Create the conda env — this also installs the package (via the -e .[docs] line inside environment.yml)
+```shell
+conda env create -f environment.yml
+conda activate multidevice_dataToolkit
+```
+
+## 3. Set up local secrets
+```shell
+cp .env.example .env
+# → fill in .env with real DB creds, Fitbit/Atmotube client secrets, etc.
+```
+
+# 4. Bring up the local Postgres+PostGIS + Grafana stack
+```shell 
+cd deploy
+docker compose up -d
+```
+
+# 5. Sanity check the package installed correctly
+```shell
+python -c "import extract; print(extract.__file__)"
+```

@@ -5,13 +5,20 @@ description = "ETL pipeline for multi-device environmental and biometric data"
 requires-python = ">=3.10"
 dependencies = [
     "pandas",
+    "numpy",
     "sqlalchemy",
     "psycopg2-binary",
     "pyyaml",
     "python-dotenv",
     "tenacity",
     "requests",
+    "tzfpy",
+    "apscheduler>=3.10",
 ]
+
+[project.optional-dependencies]
+docs = ["plotly>=5.14", "ipykernel", "jupyter", "setuptools<70.0"]
+dev  = ["pytest>=8.0", "ruff>=0.5", "black>=24.0"]
 
 [build-system]
 requires = ["setuptools>=61.0"]

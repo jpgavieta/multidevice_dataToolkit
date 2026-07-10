@@ -1,43 +1,68 @@
-from extract import extract_raw_data
-from transform import transform_device_data
+# src/load/load.py
+"""
+Pushes raw API payloads into the database. No transform/parsing here —
+raw.api_pulls stores exact API responses as JSONB (JSONs as binary not text); processed tables are
+populated separately, later, by the transform step.
+"""
 
-# This orchestrates extract and transform ->  returns data ready for the visualization
+import os
+import json
+from datetime import datetime, timezone
 
-# Each device_type is its own stream; within it, each
-#       device_id (physical device / file) stays separate rather than being
-#       merged together, so every row stays traceable back to its source file.
+import psycopg2
+from psycopg2.extras import execute_values
+from dotenv import load_dotenv
 
-# ============================================================================================================
+load_dotenv()
 
-def load(mount_path: str) -> dict:
+
+def _get_connection():
+    return psycopg2.connect(
+        host=os.environ["DB_HOST"],
+        port=os.environ.get("DB_PORT", 5432),
+        dbname=os.environ["DB_NAME"],
+        user=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
+    )
+
+
+def load_raw_data(all_data: dict[str, dict[str, dict]]) -> None:
     """
-    Run the full extract -> transform pipeline for all device_type folders
-    under mount_path.
-
-    Parameters
-    ----------
-    mount_path : str
-        Root folder containing one subfolder per device_type.
-
-    Returns
-    -------
-    dict
-        { device_type: { device_id: { "gis": df, "data": { table_name: {"df":, "cols":} } } } }
+    Pushes raw API payloads into raw.api_pulls, one row per device per pull.
+    all_data shape: { device_type: { device_id: raw_payload } }
     """
-    raw_data = extract_raw_data(mount_path)
-    return transform_device_data(raw_data)
+    pulled_at = datetime.now(timezone.utc)
+    rows = [
+        (device_type, device_id, pulled_at, json.dumps(payload))
+        for device_type, devices in all_data.items()
+        for device_id, payload in devices.items()
+    ]
 
-# Example: data = load("/home/yul/mnt/proton-data")
-#          data["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["data"]["pm"]["df"]    # PM DataFrame for that device_id
-#          data["Atmotube"]["C3CBE16AE294_01-May-2026_12-Jun-2026"]["gis"]                 # GIS DataFrame for that device_id
-#          list(data["Atmotube"].keys())                                                   # all device_ids loaded for Atmotube
+    if not rows:
+        print("⚠️ No raw data to load.")
+        return
+
+    conn = _get_connection()
+    try:
+        with conn.cursor() as cur:
+            execute_values(
+                cur,
+                "INSERT INTO raw.api_pulls (device_type, device_id, pulled_at, payload) VALUES %s",
+                rows,
+                template="(%s, %s, %s, %s::jsonb)",
+            )
+        conn.commit()
+        print(f"✅ Loaded {len(rows)} raw record(s) into raw.api_pulls")
+    except Exception as e:
+        conn.rollback()
+        print(f"❌ Load failed: {e}")
+        raise
+    finally:
+        conn.close()
+
 
 if __name__ == "__main__":
-    MOUNT_PATH = "/home/yul/mnt/proton-data"
-    data = load(MOUNT_PATH)
-    if data:
-        print(f"\nLoaded {len(data)} device_type stream(s).")
-        for device_type, devices in data.items():
-            print(f"   {device_type}: {len(devices)} device_id(s) -> {list(devices.keys())}")
-        print()
-        # display_loaded_data(data)
+    from extract.extract import extract_all_devices
+
+    data = extract_all_devices()
+    load_raw_data(data)

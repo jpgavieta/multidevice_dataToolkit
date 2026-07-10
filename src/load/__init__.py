@@ -1,1 +1,1 @@
-from .load import load
+from .DEPRECATED_load import load

@@ -20,3 +20,5 @@ ENV/
 
 # API secrets + device accounts
 **/secrets/
+
+.gitattributes

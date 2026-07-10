@@ -1,10 +1,11 @@
-# extract/config/fitbit_tokens.py
-
+# src/extract/config/fitbit_tokens.py
 """
 Fitbit / Google Health OAuth — per-device tokens, shared OAuth client.
 
 Each physical device has its own Google account and its own token file.
 The OAuth client (client_id/client_secret) is shared across all devices.
+
+Each _tokens.py module NEVER touch each other — ONLY tokens.py
 """
 
 import json
@@ -16,8 +17,10 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 import requests
 
-CLIENT_SECRETS_FILE = Path("extract/config/secrets/fitbit/client_secret.json")
-TOKENS_DIR = Path("extract/config/secrets/fitbit/tokens")
+# fitbit_tokens.py
+CONFIG_DIR = Path(__file__).resolve().parent   # .../src/extract/config
+CLIENT_SECRETS_FILE = CONFIG_DIR / "secrets" / "fitbit" / "client_secret.json"
+TOKENS_DIR = CONFIG_DIR / "secrets" / "fitbit" / "tokens"
 
 AUTH_PORT = 8765
 REDIRECT_URI = f"http://localhost:{AUTH_PORT}"

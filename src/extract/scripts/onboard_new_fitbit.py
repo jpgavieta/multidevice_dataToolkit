@@ -1,6 +1,5 @@
+# src/extract/scripts/onboard_new_fitbit.py
 """
-extract/scripts/onboard_new_fitbit.py
-
 One-time setup for a new Fitbit device: runs the Google OAuth consent flow
 and saves the resulting token so future pulls run silently.
 
@@ -14,13 +13,13 @@ USAGE:
     python -m extract.scripts.onboard_new_fitbit fitbit_kol_08
 
 A browser window will open — sign in to THIS DEVICE'S Google account
-(not your own), and approve the requested permissions.
+(not personal account), and approve the requested permissions.
 """
 
 import sys
-from datetime import date, timedelta
 
-from extract.clients.fitbit_client import extract_raw_data
+from extract.config.tokens import get_fitbit_token
+from extract.clients.fitbit_client import get_profile
 
 
 def main():
@@ -29,22 +28,25 @@ def main():
         sys.exit(1)
 
     device_id = sys.argv[1]
-    end = date.today()
-    start = end - timedelta(days=7)  # short test range, not a real backfill
 
     print(f"\nOnboarding '{device_id}' — a browser window should open shortly.")
     print("Sign in to THIS DEVICE'S Google account, not your own.\n")
 
-    result = extract_raw_data(device_id, str(start), str(end))
+    try:
+        access_token = get_fitbit_token(device_id)
+    except Exception as e:
+        print(f"\n❌ OAuth flow failed for '{device_id}': {e}")
+        sys.exit(1)
 
-    print(f"\n=== Results for '{device_id}' ===")
-    for data_type, payload in result.items():
-        if payload is None:
-            print(f"  {data_type}: FAILED")
-        else:
-            print(f"  {data_type}: OK")
+    try:
+        profile = get_profile(access_token)
+        print(f"\n✅ Token saved and verified for '{device_id}'.")
+        print(f"   Profile check OK: {profile.get('displayName', '(no name field)')}")
+    except Exception as e:
+        print(f"\n⚠️ Token saved, but profile check failed: {e}")
+        print("   Token may still be valid for data pulls — check manually if concerned.")
 
-    print(f"\nToken saved. '{device_id}' is ready for regular pulls.")
+    print(f"\nNext: add '{device_id}' to config/devices.yaml if not already present.")
 
 
 if __name__ == "__main__":

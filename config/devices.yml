@@ -1,80 +1,74 @@
-# extract/config/devices.yml
+# config/devices.yml
 
 # ============================================================================================================
 # DEVICES + access info
 
-fitbit_devices: # for fitbit accounts --> extract/config/secrets/fitbit/accounts.yml 
+fitbit_devices: # for each fitbit's google account --> extract/config/secrets/fitbit/accounts.yml 
   - id: fitbit_kol_01
     type: fitbit
     site: kolkata
-    google_account: ${FITBIT_KOL_01_ACCOUNT} # if i turn the accounts.yml into 
     timezone: Asia/Kolkata
-    active_from: 2026-07-07
-    active_to: null
+    start_date: 2026-05-22 # Confirm with field researcher 
+    end_date: null
     notes: ""
 
   - id: fitbit_kol_02
     type: fitbit
     site: kolkata
-    google_account: study.fitbit06@gmail.com # if ashique lets me just rename the emails
     timezone: Asia/Kolkata
-    active_from: 2026-07-07
-    active_to: null
+    start_date: null 
+    end_date: null
     notes: ""
 
   - id: fitbit_kol_03
     type: fitbit
     site: kolkata
-    google_account: study.fitbit06@gmail.com
     timezone: Asia/Kolkata
-    active_from: 2026-07-07
-    active_to: null
+    start_date: null
+    end_date: null
     notes: ""
 
   - id: fitbit_kol_04
     type: fitbit
-    site: kolkata
-    google_account: study.fitbit06@gmail.com
     timezone: Asia/Kolkata
-    active_from: 2026-07-07
-    active_to: null
+    site: kolkata
+    start_date: null 
+    end_date: null
     notes: ""
 
   - id: fitbit_kol_05
     type: fitbit
     site: kolkata
-    google_account: study.fitbit06@gmail.com
     timezone: Asia/Kolkata
-    active_from: 2026-07-07
-    active_to: null
+    start_date: null 
+    end_date: null
     notes: ""
 
   - id: fitbit_kol_06
     type: fitbit
     site: kolkata
-    google_account: study.fitbit06@gmail.com
     timezone: Asia/Kolkata
-    active_from: 2026-07-07
-    active_to: null
+    start_date: null
+    end_date: null
     notes: ""
 
   - id: fitbit_kol_07
     type: fitbit
     site: kolkata
-    google_account: study.fitbit06@gmail.com
     timezone: Asia/Kolkata
-    active_from: 2026-07-07
-    active_to: null
-    notes: ""
+    start_date: 2026-06-30 
+    end_date: null
+    notes: "start_date is when device was handed over to participant_07"
 
   # Atmotube devices — placeholders, fill in once sales access is confirmed
+  # atmotube_devices:
   # - id: atmotube_kol_01
   #   type: atmotube
   #   site: kolkata
   #   mac_address: null
   #   timezone: Asia/Kolkata
-  #   active_from: null
-  #   active_to: null
+  #   start_date: null
+  #   end_date: null
 
 
 # ============================================================================================================
@@ -84,8 +78,8 @@ fitbit_devices: # for fitbit accounts --> extract/config/secrets/fitbit/accounts
 
 sites:
   kolkata:
-  fitbit_client_secret_path: extract/config/secrets/fitbit/client_secret.json 
+    fitbit_client_secret_path: extract/config/secrets/fitbit/client_secret.json 
     # atmotube_api_key_site: ATMOTUBE_API_KEY_KOLKATA   # placeholder for later
   # toronto:
-  #   fitbit_client_secret_path: extract/config/secrets/fitbit/client_secret.json  # same OAuth client, shared
-  #   atmotube_api_key_site: ATMOTUBE_API_KEY_TORONTO
+  #  fitbit_client_secret_path: extract/config/secrets/fitbit/client_secret.json  # same OAuth client, shared
+  #  atmotube_api_key_site: ATMOTUBE_API_KEY_TORONTO
