@@ -1,5 +1,5 @@
 [project]
-name = "multidevice-datatoolkit"
+name = "multidevice-datakit"
 version = "0.1.0"
 description = "ETL pipeline for multi-device environmental and biometric data"
 requires-python = ">=3.10"
@@ -9,6 +9,7 @@ dependencies = [
     "sqlalchemy",
     "psycopg2-binary",
     "pyyaml",
+    "pyyaml-env-tag", 
     "python-dotenv",
     "tenacity",
     "requests",
@@ -27,3 +28,10 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src", "."]
 include = ["extract*", "general*", "load*", "transform*", "docs*"]
+
+## USAGE
+# pip install -e . # install dependencies + this package
+# pip install -e ".[docs,dev]" # ONLY dependencies - no package
+# pip install -e ".[dev]"      # only dev tools
+# pip install -e ".[docs]"     # only docs tools
+
