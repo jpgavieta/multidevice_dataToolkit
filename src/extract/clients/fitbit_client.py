@@ -1,8 +1,7 @@
 # src/extract/clients/fitbit_client.py
-
 """
 Fitbit / Google Health API client to conduct the data pull — per device, per date range.
-Returns raw API responses;, no participant logic.
+Returns raw API responses.
 """
 
 from datetime import datetime, timedelta
@@ -94,7 +93,7 @@ FILTER_FIELDS = {
     "daily-oxygen-saturation": "daily_oxygen_saturation.date",
     "daily-respiratory-rate": "daily_respiratory_rate.date",
     "daily-sleep-temperature-derivations": "daily_sleep_temperature_derivations.date",
-    "daily-vo2-max": "daily_vo2_max.date",   # ⚠️ UNVERIFIED — assumed daily-civil-date pattern given "daily-" prefix
+    "daily-vo2-max": "daily_vo2_max.date",   
 
     # Session type
     "sleep": "sleep.interval.end_time",
@@ -139,12 +138,8 @@ CIVIL_START_TIME_TYPES = {"exercise"}
 # print(json.dumps(resp['dataPoints'][0], indent=2))
 # "
 
-# Data types that don't support dataPoints.list at all — the API rejects
-# the "list" action and only supports reconcile/rollUp/dailyRollUp instead.
-# Confirmed for floors via API error message. These get pulled through
-# _get_daily_rollup() rather than _get_data_points(), and their response
-# lives under "rollupDataPoints", not "dataPoints" — handled separately
-# in find_earliest_data().
+# Data types that don't support dataPoints.list at all — the API rejects the "list" action and only supports reconcile/rollUp/dailyRollUp instead.
+# Confirmed for floors via API error message. These get pulled through _get_daily_rollup() rather than _get_data_points(), and their response lives under "rollupDataPoints", not "dataPoints" — handled separately  in find_earliest_data().
 DAILY_ROLLUP_TYPES = {"floors", "calories-in-heart-rate-zone"}
 ## testing...
 # python -c "
@@ -156,23 +151,16 @@ DAILY_ROLLUP_TYPES = {"floors", "calories-in-heart-rate-zone"}
 # print(json.dumps(resp, indent=2)[:2000])
 # "
 
-# Max query duration (days) per dailyRollUp data type — confirmed to vary
-# per type via API error metadata (floors: 90, calories-in-heart-rate-zone: 14).
-# Default conservatively to 14 for any future DAILY_ROLLUP_TYPES entries
-# until confirmed otherwise.
+# Max query duration (days) per dailyRollUp data type — confirmed to vary per type via API error metadata (floors: 90, calories-in-heart-rate-zone: 14).
+# Default conservatively to 14 for any future DAILY_ROLLUP_TYPES entries until confirmed otherwise.
 ROLLUP_MAX_DURATION_DAYS = {
     "floors": 90,
     "calories-in-heart-rate-zone": 14,
 }
 
-# Some data types use a different field for filtering than for reading the
-# actual value back out of the response — exercise is filtered via
-# civil_start_time but the response only contains startTime/endTime under
-# interval, not civilStartTime. floors is pulled via dailyRollUp, whose
-# response uses civilStartTime, not any FILTER_FIELDS-listed path (floors
-# has no FILTER_FIELDS entry at all, since it never goes through the filter
-# query param). This maps data_type -> the real extraction path, overriding
-# FILTER_FIELDS for extraction purposes only when it differs.
+# Some data types use a different field for filtering than for reading the actual value back out of the response — exercise is filtered via civil_start_time but the response only contains startTime/endTime under interval, not civilStartTime. 
+# floors is pulled via dailyRollUp, whose response uses civilStartTime, not any FILTER_FIELDS-listed path (floors has no FILTER_FIELDS entry at all, since it never goes through the filter query param). 
+# This maps data_type -> the real extraction path, overriding FILTER_FIELDS for extraction purposes only when it differs.
 EXTRACT_FIELD_OVERRIDES = {
     "exercise": "exercise.interval.start_time",
     "floors": "civil_start_time",
@@ -329,7 +317,7 @@ def _normalize_timestamp(data_type: str, value) -> str | None:
 
 def find_earliest_data(device_id: str, start_date: str, end_date: str) -> dict[str, str | None]:
     """Returns {data_type: earliest_date_str_or_None} for this device over the given range."""
-    raw = extract_raw_data(device_id, start_date, end_date)
+    raw = extract_raw_data({"id": device_id}, start_date, end_date)
     earliest = {}
     for data_type, payload in raw.items():
         if data_type == "profile":
@@ -353,7 +341,7 @@ def find_earliest_data(device_id: str, start_date: str, end_date: str) -> dict[s
     return earliest
 
 
-def extract_raw_data(device_id: str, start_date: str, end_date: str, allow_interactive: bool = False) -> dict:
+def extract_raw_data(device: dict, start_date: str, end_date: str, allow_interactive: bool = False) -> dict:
     """
     Pulls all Fitbit data types for one device over one date range.
     Returns raw, unmodified JSON response:
@@ -362,6 +350,8 @@ def extract_raw_data(device_id: str, start_date: str, end_date: str, allow_inter
     fetched concurrently, bounded to MAX_WORKERS_PER_DEVICE to avoid stacking on top of extract.py's own per-device threading.
     No parsing here — that's transform's job, later
     """
+    device_id = device["id"]
+
     try:
         access_token = get_fitbit_token(device_id, allow_interactive=allow_interactive)
     except Exception as e:

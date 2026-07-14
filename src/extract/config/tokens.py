@@ -2,7 +2,7 @@
 """
 Central credential resolver for all device APIs.
 
-Each service (Fitbit, Atmotube, ...) has its own auth module with its own logic, since auth mechanisms differ (OAuth vs. static API key). 
+Each service (Fitbit, Atmotube, ...) has its own auth module with its own logic, since auth mechanisms differ (OAuth vs. static API key).
 This file is just the single import surface clients use, so fitbit_client.py and atmotube_client.py don't need to know which specific module their credentials come from.
 
 TO ADD A NEW DEVICE API:
@@ -12,13 +12,8 @@ TO ADD A NEW DEVICE API:
 """
 
 from .fitbit_tokens import get_access_token as _fitbit_get_access_token
-# from .atmotube_tokens import get_api_key as get_atmotube_key   # uncomment once built
-
+from .atmotube_tokens import get_api_key as get_atmotube_api_key
+from .atmotube_tokens import get_mac_for_device as get_atmotube_mac_for_device
 
 def get_fitbit_token(device_id: str, allow_interactive: bool = False) -> str:
     return _fitbit_get_access_token(device_id, allow_interactive=allow_interactive)
-
-
-# def get_atmotube_token(device_id: str) -> str:
-#     from extract.config.atmotube_tokens import get_access_token as _atmotube_get_access_token
-#     return _atmotube_get_access_token(device_id)

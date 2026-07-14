@@ -2,84 +2,141 @@
 
 # ============================================================================================================
 # DEVICES + access info
+# Fitbit google accounts are stored in ./extract/secrets/fitbit/.env.access
+# Atmotube hardware ids are stored in .extract/secrets/atmotube/.env.access
 
-fitbit_devices: # for each fitbit's google account --> extract/config/secrets/fitbit/accounts.yml 
+
+fitbit_devices: 
   - id: fitbit_kol_01
     type: fitbit
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: 2026-05-22 # Confirm with field researcher 
+    start_date: 2026-05-26 # Confirm with field researcher 
     end_date: null
+    account: !ENV FITBIT_KOL_01_USER
     notes: ""
 
   - id: fitbit_kol_02
     type: fitbit
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: null 
+    start_date: 2026-05-26 # Confirm with field researcher  
     end_date: null
+    account: !ENV FITBIT_KOL_02_USER
     notes: ""
 
   - id: fitbit_kol_03
     type: fitbit
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: null
+    start_date: 2026-05-26 # Confirm with field researcher  
     end_date: null
+    account: !ENV FITBIT_KOL_03_USER
     notes: ""
 
   - id: fitbit_kol_04
     type: fitbit
-    timezone: Asia/Kolkata
     site: kolkata
-    start_date: null 
+    timezone: Asia/Kolkata
+    start_date: 2026-05-26 # Confirm with field researcher 
     end_date: null
+    account: !ENV FITBIT_KOL_04_USER
     notes: ""
 
   - id: fitbit_kol_05
     type: fitbit
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: null 
+    start_date: 2026-05-26 # Confirm with field researcher 
     end_date: null
+    account: !ENV FITBIT_KOL_05_USER
     notes: ""
 
   - id: fitbit_kol_06
     type: fitbit
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: null
+    start_date: 2026-05-26 # Confirm with field researcher 
     end_date: null
+    account: !ENV FITBIT_KOL_06_USER
     notes: ""
 
   - id: fitbit_kol_07
     type: fitbit
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: 2026-06-30 
+    start_date: 2026-05-26 # Confirm with field researcher 
     end_date: null
-    notes: "start_date is when device was handed over to participant_07"
+    account: !ENV FITBIT_KOL_07_USER
+    notes: "device was handed over to participant_07 on 2026-06-30"
 
-  # Atmotube devices — placeholders, fill in once sales access is confirmed
-  # atmotube_devices:
-  # - id: atmotube_kol_01
-  #   type: atmotube
-  #   site: kolkata
-  #   mac_address: null
-  #   timezone: Asia/Kolkata
-  #   start_date: null
-  #   end_date: null
+atmotube_devices:
+  - id: atmotube_kol_01
+    type: atmotube
+    site: kolkata
+    timezone: Asia/Kolkata
+    start_date: null  
+    end_date: null
+    mac: !ENV ATMOTUBE_KOL_01_MAC
+
+  - id: atmotube_kol_02
+    type: atmotube
+    site: kolkata
+    timezone: Asia/Kolkata
+    start_date: 2026-06-13  # Confirm with field researcher 
+    end_date: null
+    mac: !ENV ATMOTUBE_KOL_02_MAC
+
+  - id: atmotube_kol_03
+    type: atmotube
+    site: kolkata
+    timezone: Asia/Kolkata
+    start_date: null
+    end_date: null
+    mac: !ENV ATMOTUBE_KOL_03_MAC
+
+  - id: atmotube_kol_04
+    type: atmotube
+    site: kolkata
+    timezone: Asia/Kolkata
+    start_date: null
+    end_date: null
+    mac: !ENV ATMOTUBE_KOL_04_MAC
+
+  - id: atmotube_kol_05
+    type: atmotube
+    site: kolkata
+    timezone: Asia/Kolkata
+    start_date: 2026-07-03  # Confirm with field researcher 
+    end_date: null
+    mac: !ENV ATMOTUBE_KOL_05_MAC
+
+  - id: atmotube_kol_06
+    type: atmotube
+    site: kolkata
+    timezone: Asia/Kolkata
+    start_date: 2026-07-08  # Confirm with field researcher 
+    end_date: null
+    mac: !ENV ATMOTUBE_KOL_06_MAC
+
+  - id: atmotube_kol_07 # NOT YET ADDED TO ATMO CLOUD
+    type: atmotube
+    site: kolkata
+    timezone: Asia/Kolkata
+    start_date: null
+    end_date: null
+    mac: !ENV ATMOTUBE_KOL_07_MAC
 
 
 # ============================================================================================================
 # STUDY SITES + API cred
 # - Fitbit ==> OAuth client (https://console.cloud.google.com/ Cloud Project ID: fitbit-multi-user-dev)
-# - Atmotube ==> API key (https://cloud.atmotube.com/)
+# - Atmotube ==> API key (https://cloud.atmotube.com/ User Account: sensailabs.research@gmail.com)
 
 sites:
   kolkata:
     fitbit_client_secret_path: extract/config/secrets/fitbit/client_secret.json 
-    # atmotube_api_key_site: ATMOTUBE_API_KEY_KOLKATA   # placeholder for later
+    atmotube_api_key_site: extract/config/secrets/atmotube/api_key.json
   # toronto:
   #  fitbit_client_secret_path: extract/config/secrets/fitbit/client_secret.json  # same OAuth client, shared
   #  atmotube_api_key_site: ATMOTUBE_API_KEY_TORONTO

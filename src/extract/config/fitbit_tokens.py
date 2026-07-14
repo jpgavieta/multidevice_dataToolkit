@@ -1,11 +1,9 @@
 # src/extract/config/fitbit_tokens.py
 """
-Fitbit / Google Health OAuth — per-device tokens, shared OAuth client.
-
-Each physical device has its own Google account and its own token file.
-The OAuth client (client_id/client_secret) is shared across all devices.
-
-Each _tokens.py module NEVER touch each other — ONLY tokens.py
+Fitbit / Google Health
+- Each physical device has its own Google account and generated token file (per-device tokens).
+- OAuth client (client_id/client_secret) is shared across all devices
+NOTE: Each _tokens.py module NEVER touch each other — ONLY tokens.py
 """
 
 import json

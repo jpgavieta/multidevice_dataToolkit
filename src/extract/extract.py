@@ -14,16 +14,17 @@ from threading import Lock
 
 from general.device_registry import load_devices
 from extract.clients import fitbit_client
-# from extract.clients import atmotube_client   # no API key yet
-# from extract.clients import ponyopi_client     # confirm still in scope
+from extract.clients import atmotube_client   
+# from extract.clients import ponyopi_client     # not developed yet
 
 CLIENT_REGISTRY = {
     "fitbit": fitbit_client.extract_raw_data,
+    "atmotube": atmotube_client.extract_raw_data
 }
 
 # ============================================================================================================
 
-def get_date_range(device_start_date: str | None = None, end_date=None) -> tuple[date, date]:
+def get_date_range(device_start_date: str | None = None, end_date: date | None = None) -> tuple[date, date]:
     """
     Returns (start, end) as date objects for one device's pull.
     -   If device_start_date is set: pulls from that date forward (covers both first-ever backfill and normal runs 
@@ -39,15 +40,15 @@ def get_date_range(device_start_date: str | None = None, end_date=None) -> tuple
 
     return start, end
 
-def _pull_one_device(device_type: str, device_id: str, start_date: str, end_date: str):
+def _pull_one_device(device_type: str, device: dict, start_date: str, end_date: str):
     """Returns (device_id, raw_payload, error). raw_payload is untouched — no parsing here."""
     client_fn = CLIENT_REGISTRY.get(device_type)
     if client_fn is None:
-        return device_id, None, NotImplementedError(f"No client registered for device_type={device_type}")
+        return device["id"], None, NotImplementedError(f"No client registered for device_type={device_type}")
     try:
-        return device_id, client_fn(device_id, start_date, end_date), None
+        return device["id"], client_fn(device, start_date, end_date), None
     except Exception as e:
-        return device_id, None, e
+        return device["id"], None, e
 
 
 def extract_all_devices(
@@ -77,12 +78,9 @@ def extract_all_devices(
     print(f"--- Pulling {len(devices)} device(s) from registry [{start_date} → {end_date}] ---")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        end_date_obj = date.fromisoformat(end_date)
         future_to_device = {
-            executor.submit(
-                _pull_one_device,
-                d["type"], d["id"],
-                *map(str, get_date_range(d.get("start_date")))
-            ): d
+            executor.submit(_pull_one_device, d["type"], d, start_date, end_date): d
             for d in devices
         }
         for future in as_completed(future_to_device):

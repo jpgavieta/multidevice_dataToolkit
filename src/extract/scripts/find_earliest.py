@@ -1,4 +1,4 @@
-# extract/scripts/find_start_date.py
+# src/extract/scripts/find_earliest.py
 """
 One-time check for a newly onboarded device: pulls a wide date range and reports the earliest date with real (non-empty) data. 
 This is so it can set an accurate `start_date` in config/devices.yaml instead of guessing.
@@ -7,12 +7,14 @@ Dispatches per device_type — each client module needs its own find_earliest_da
 
 USAGE for each device type:
 
-    a. FITBIT (one device at a time)
-```shell
-python -m extract.scripts.onboard_new_fitbit fitbit_kol_01
-python -m extract.scripts.find_start_date fitbit_kol_01
-```
-And then update devices.yaml with the real start_date it reports
+    a. FITBIT (one at a time)
+python -m extract.scripts.verify_fitbit fitbit_kol_01
+python -m extract.scripts.find_earliest fitbit_kol_01
+
+And then update devices.yml with the real start_date it reports.
+
+    b. ATMOTUBE (one at a time)
+python -m extract.scripts.find_earliest atmotube_kol_01
 
 """
 
@@ -21,18 +23,19 @@ from datetime import date, timedelta
 
 from general.device_registry import load_devices
 from extract.clients import fitbit_client
-# from extract.clients import atmotube_client   # add once key arrives
+from extract.clients import atmotube_client   # add once key arrives
 
 LOOKBACK_DAYS = 180 
 
 FINDER_REGISTRY = {
     "fitbit": fitbit_client.find_earliest_data,
+    "atmotube": atmotube_client.find_earliest_data,
 }
 
 
 def main():
     if len(sys.argv) != 2:
-        print("Usage: python -m extract.scripts.find_start_date <device_id>")
+        print("Usage: python -m extract.scripts.find_earliest <device_id>")
         sys.exit(1)
 
     device_id = sys.argv[1]
@@ -51,7 +54,7 @@ def main():
     end = date.today()
 
     print(f"\nChecking '{device_id}' for earliest real data [{start} → {end}]...")
-    earliest_by_type = finder_fn(device_id, str(start), str(end))
+    earliest_by_type = finder_fn(device, str(start), str(end))
 
     print(f"\n=== Earliest data found per type, for '{device_id}' ===")
     for data_type, earliest in earliest_by_type.items():
