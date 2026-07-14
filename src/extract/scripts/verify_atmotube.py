@@ -1,9 +1,9 @@
-# src/extract/scripts/atmotube_debug.py
+# src/extract/scripts/verify_atmotube.py
 """
 Combined debugging tool for the Atmotube API — used throughout onboarding,
 initial wiring, and ongoing troubleshooting. Two subcommands:
 
-    ping   One device, one day, no chunking/pagination — isolates host/auth/ response-shape problems fast. 
+    ping    One device, one day, no chunking/pagination — isolates host/auth/ response-shape problems fast. 
             Bypasses extract_raw_data() entirely.
             Run after wiring up a new API key, or after changing auth/host/response-shape handling in atmotube_client.py.
 
@@ -12,9 +12,9 @@ initial wiring, and ongoing troubleshooting. Two subcommands:
             --all lists every device the key can see, useful for reconciling against devices.yml.
 
 USAGE:
-python -m extract.scripts.atmotube_debug ping --device atmotube_kol_01
-python -m extract.scripts.atmotube_debug check --device atmotube_kol_01
-python -m extract.scripts.atmotube_debug check --all
+python -m extract.scripts.verify_atmotube ping --device atmotube_kol_01
+python -m extract.scripts.verify_atmotube check --device atmotube_kol_01
+python -m extract.scripts.verify_atmotube check --all
 
 For the full chunking/pagination code path and duplicate/dropped records across chunks, use inspect_data.py instead. 
 For per-device earliest-data history, use find_start_date.py.
@@ -30,6 +30,9 @@ import requests
 from general.device_registry import load_devices  # adjust import if your loader lives elsewhere
 from extract.config.tokens import get_atmotube_api_key
 from extract.clients.atmotube_client import DATA_BASE_URL, _normalize_mac
+
+# ============================================================================================================
+
 
 DEVICES_URL = "https://api2.atmotube.com/api/v1/devices"
 
@@ -53,8 +56,8 @@ def ping_test(device_id: str):
 
     device = _get_device(device_id)
     mac = _normalize_mac(device["mac"])
-    api_key = get_atmotube_api_key()
-
+    api_key = get_atmotube_api_key(device["site"])
+    
     print(f"  MAC (normalized): {mac}")
     print(f"  Base URL: {DATA_BASE_URL}")
 
@@ -108,16 +111,16 @@ def ping_test(device_id: str):
 
 # check: device/MAC registration status via /api/v1/devices
 
-def list_all_devices():
-    """Shows every device the API key can see — cross-reference against
-    devices.yml's MACs to catch typos or mismatches at a glance."""
-    api_key = get_atmotube_api_key()
+def list_all_devices(site: str):
+    """Shows every device the given site's API key can see — cross-reference
+    against devices.yml's MACs to catch typos or mismatches at a glance."""
+    api_key = get_atmotube_api_key(site)
     headers = {"X-Api-Key": api_key}
     r = requests.get(DEVICES_URL, params={"return_config": False}, headers=headers, timeout=30)
     r.raise_for_status()
     devices = r.json()
 
-    print(f"API key can see {len(devices)} device(s):\n")
+    print(f"Site '{site}' API key can see {len(devices)} device(s):\n")
     for d in devices:
         print(f"  mac={d.get('mac')}  serial={d.get('serial')}  name={d.get('name')}")
         print(f"    created={d.get('date_created')}  updated={d.get('updated')}  fw={d.get('fw')}")
@@ -128,7 +131,7 @@ def list_all_devices():
 def check_one(device_id: str):
     device = _get_device(device_id)
     mac = _normalize_mac(device["mac"])
-    api_key = get_atmotube_api_key()
+    api_key = get_atmotube_api_key(device["site"])
     headers = {"X-Api-Key": api_key}
 
     print(f"Checking '{device_id}' (mac={mac}) against /api/v1/devices ...\n")
@@ -167,7 +170,9 @@ if __name__ == "__main__":
 
     check_parser = subparsers.add_parser("check", help="Device/MAC registration check")
     check_parser.add_argument("--device", help="Device id from devices.yml")
-    check_parser.add_argument("--all", action="store_true", help="List every device visible to this API key")
+    check_parser.add_argument("--all", action="store_true", help="List every device visible to a site's API key")
+    check_parser.add_argument("--site", default="kolkata", help="Required with --all, since keys are now per-site")
+
 
     args = parser.parse_args()
 
@@ -175,7 +180,7 @@ if __name__ == "__main__":
         ping_test(args.device)
     elif args.command == "check":
         if args.all:
-            list_all_devices()
+            list_all_devices(args.site)
         elif args.device:
             check_one(args.device)
         else:

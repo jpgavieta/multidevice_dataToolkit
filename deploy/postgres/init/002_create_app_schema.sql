@@ -1,9 +1,9 @@
--- ============================================================
+-- # ============================================================================================================
 -- 1. CREATE SCHEMAS (Must happen BEFORE tables)
 CREATE SCHEMA IF NOT EXISTS raw;
 CREATE SCHEMA IF NOT EXISTS processed;
 
--- ============================================================
+-- # ============================================================================================================
 -- 2. RAW SCHEMA — immutable landing zone
 CREATE TABLE IF NOT EXISTS raw.api_pulls (
     id           BIGSERIAL PRIMARY KEY,
@@ -19,7 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_raw_api_pulls_device
 CREATE INDEX IF NOT EXISTS idx_raw_api_pulls_payload_gin
     ON raw.api_pulls USING GIN (payload);
 
--- ============================================================
+-- # ============================================================================================================
 -- 3. PROCESSED SCHEMA — parsed/standardized
 CREATE TABLE IF NOT EXISTS processed.devices (
     device_id    TEXT PRIMARY KEY,
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS processed.devices (
 
 CREATE TABLE IF NOT EXISTS processed.readings (
     id             BIGSERIAL PRIMARY KEY,
-    device_id      TEXT REFERENCES processed.devices(device_id),
+    device_id      TEXT REFERENCES proccan essed.devices(device_id),
     recorded_at    TIMESTAMPTZ NOT NULL,
     metric         TEXT NOT NULL,
     value          DOUBLE PRECISION,

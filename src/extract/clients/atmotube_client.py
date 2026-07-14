@@ -1,10 +1,17 @@
-# src/extract/clients/atmotube_client.py
 """
-Atmotube Cloud API client.
-Fetches historical air-quality data for a single device over a date range.
-Handles: date-range chunking (conservative safety window), cursor-based pagination
-within each chunk (API returns next_cursor until exhausted), and bounded thread
-concurrency across chunks.
+Atmotube Cloud API client 
+    -   Per-device, per-date-range raw data pulls
+    -   Fetches historical data sequentially
+    -   Bounded thread concurrency ACROSS chunks (not within one — see note below)
+
+HANDLES: 
+    -   date-range chunking (conservative safety window)
+    -   cursor-based pagination within each chunk (API returns next_cursor until exhausted)
+
+Chunks are fetched sequentially — with typical backfill ranges (a few dozen chunks at most) 
+
+KNOWN UNKNOWN:
+- The real rate limit for this API hasn't been confirmed yet. 
 """
 
 from datetime import datetime, timedelta, date
@@ -16,16 +23,29 @@ from typing import Optional
 
 from extract.config.tokens import get_atmotube_api_key
 
+# ============================================================================================================
+
+
 DATA_BASE_URL = "https://api2.atmotube.com/api/v1/measurements"
 
 # NOTE: the openapi-public.json dump had no top-level "servers" block, so this host is inferred from where the spec itself is served — confirmed working via live smoke test on 2026-07-13.
 
-MAX_DAYS_PER_REQUEST = 7        # NOT confirmed for this endpoint — spec has no stated max range on start_date/end_date. 
+MAX_DAYS_PER_REQUEST = 7        # NOT confirmed for this endpoint — spec has no stated max range on start_date/end_date.
                                 # Kept as a conservative safety window (was confirmed for a DIFFERENT legacy endpoint, not this one).
-MAX_WORKERS_PER_DEVICE = 1      # concurrent chunk requests for a single device
+MAX_WORKERS_PER_DEVICE = 2      # concurrent CHUNK requests for a single device. Each chunk runs its own independent cursor-pagination sequence (no shared state between chunks),
+                                # so cross-chunk concurrency is safe — pagination WITHIN a chunk is strictly sequential and cannot be parallelized (each page's request needs the next_cursor value from the previous page's response). 
+                                # Bumped from 1 to 2 now that _get_with_retry absorbs 429s — a rate-limit hit degrades to a delay, not a silent failure. Watch for repeated retry warnings before raising further.
 PAGE_LIMIT = 1440               # API max AND default per spec
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2       # doubles each retry: 2s, 4s, 8s
+
+# Site-wide Atmotube rate limit, confirmed: 60 requests/minute — shared across ALL devices under one site's API key, not per-device. 
+# MAX_WORKERS_PER_DEVICE=2 is safe for a single device in isolation, but extract.py runs multiple Atmotube
+# devices concurrently, and their requests all draw from this same shared budget.
+# _get_with_retry's 429 backoff absorbs occasional overshoot; if retry warnings become frequent during a full multi-device run, that's the signal to add a rate limiter (e.g. a shared token bucket) rather than just widening backoff.
+ATMOTUBE_RATE_LIMIT_PER_MINUTE = 60
+
+# ============================================================================================================
 
 
 def _parse_ymd(s: str) -> date:
@@ -50,6 +70,13 @@ def _normalize_mac(mac: str) -> str:
     return mac.replace(":", "").replace("-", "")
 
 
+def _get_auth(device: dict) -> tuple[str, dict]:
+    """Returns (normalized_mac, headers) — shared setup for any Atmotube call."""
+    mac = _normalize_mac(device["mac"])
+    headers = {"X-Api-Key": get_atmotube_api_key(device["site"])}
+    return mac, headers
+
+
 def _get_with_retry(params: dict, headers: dict) -> dict:
     last_exc: Optional[BaseException] = None
 
@@ -68,15 +95,15 @@ def _get_with_retry(params: dict, headers: dict) -> dict:
     raise last_exc if last_exc is not None else RuntimeError("GET failed after retries")
 
 
-def _fetch_chunk(api_key: str, mac: str, chunk_start: date, chunk_end: date) -> dict:
+def _fetch_chunk(mac: str, headers: dict, chunk_start: date, chunk_end: date) -> dict:
     """
     Fetch all records for one date window, paginating via cursor/next_cursor
     (NOT offset — the API is cursor-based) until next_cursor comes back null.
+    This loop is inherently sequential — see MAX_WORKERS_PER_DEVICE note above.
     """
     all_records = []
     cursor = None
     last_payload = None
-    headers = {"X-Api-Key": api_key}
 
     while True:
         params = {
@@ -106,14 +133,13 @@ def _fetch_chunk(api_key: str, mac: str, chunk_start: date, chunk_end: date) -> 
 def extract_raw_data(device: dict, start_date: str, end_date: str) -> dict:
     """
     Fetch all Atmotube records for one device across [start_date, end_date] (inclusive, "YYYY-MM-DD").
-    Internally splits into chunks (safety window) and fans them out across a small thread pool.
+    Internally splits into chunks (safety window) and fans them out across a small thread pool — chunks are independent (own cursor state), so this is safe to parallelize.
     Returns: {"mac", "start_date", "end_date", "merged_data", "raw_payload"}
         - merged_data: flat list of all records across the whole range
-        - raw_payload: the last chunk's raw response, kept for debugging only
+        - raw_payload: the last completed chunk's raw response, kept for debugging only
     """
     device_id = device["id"]
-    mac = _normalize_mac(device["mac"])
-    api_key = get_atmotube_api_key()
+    mac, headers = _get_auth(device)
 
     chunks = list(_iter_chunks(start_date, end_date))
     merged_data = []
@@ -127,7 +153,7 @@ def extract_raw_data(device: dict, start_date: str, end_date: str) -> dict:
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS_PER_DEVICE) as ex:
         futures = {
-            ex.submit(_fetch_chunk, api_key, mac, cs, ce): (cs, ce)
+            ex.submit(_fetch_chunk, mac, headers, cs, ce): (cs, ce)
             for (cs, ce) in chunks
         }
         for fut in as_completed(futures):
@@ -150,21 +176,16 @@ def extract_raw_data(device: dict, start_date: str, end_date: str) -> dict:
 
 def find_earliest_data(device: dict, start_date: str, end_date: str) -> dict[str, str | None]:
     """
-    Returns the earliest real data point for this device within [start_date, end_date],
-    in the same {data_type: earliest_date_str_or_None} shape fitbit_client.find_earliest_data
-    uses — so find_start_date.py's dispatch loop works unchanged across device types.
+    Returns the earliest real data point for this device within [start_date, end_date], in the same {data_type: earliest_date_str_or_None} shape fitbit_client.find_earliest_data uses.
+    So find_start_date.py's dispatch loop works unchanged across device types.
 
-    Atmotube has a single measurements stream (unlike Fitbit's many data types), so this
-    always returns a dict with one key, "measurements".
+    Atmotube has a single measurements stream (unlike Fitbit's many data types), so this always returns a dict with one key, "measurements".
 
-    Efficiency note: unlike extract_raw_data, this does NOT chunk or paginate through
-    every record in range. The API sorts server-side via `order`, so a single
-    order=ASC&limit=1 request returns the earliest record across the WHOLE range
-    directly — no need to page through months of data just to find where it starts.
+    Efficiency note: unlike extract_raw_data, this does NOT chunk or paginate through every record in range. 
+    The API sorts server-side via `order`, so a single order=ASC&limit=1 request returns the earliest record across the WHOLE range directly.
+    No need to page through months of data just to find where it starts.
     """
-    mac = _normalize_mac(device["mac"])
-    api_key = get_atmotube_api_key()
-    headers = {"X-Api-Key": api_key}
+    mac, headers = _get_auth(device)
 
     params = {
         "mac": mac,

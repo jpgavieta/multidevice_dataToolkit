@@ -14,6 +14,9 @@ import psycopg2
 from psycopg2.extras import execute_values
 from dotenv import load_dotenv
 
+# ============================================================================================================
+
+
 ENV_PATH = Path(__file__).resolve().parents[2] / "deploy" / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 

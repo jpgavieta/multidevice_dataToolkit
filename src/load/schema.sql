@@ -1,6 +1,7 @@
 -- src/load/schema.sql
 
--- ============================================================
+-- # ============================================================================================================
+
 -- RAW SCHEMA — immutable landing zone, exact API payloads
 
 CREATE TABLE IF NOT EXISTS raw.api_pulls (
@@ -17,7 +18,8 @@ CREATE INDEX IF NOT EXISTS idx_raw_api_pulls_device
 CREATE INDEX IF NOT EXISTS idx_raw_api_pulls_payload_gin
     ON raw.api_pulls USING GIN (payload);
 
--- ============================================================
+-- # ============================================================================================================
+
 -- PROCESSED SCHEMA — parsed/standardized, PostGIS-enabled
 
 CREATE TABLE IF NOT EXISTS processed.devices (

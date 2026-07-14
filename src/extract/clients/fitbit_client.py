@@ -1,18 +1,50 @@
 # src/extract/clients/fitbit_client.py
 """
-Fitbit / Google Health API client to conduct the data pull — per device, per date range.
-Returns raw API responses.
+Fitbit / Google Health API client 
+    -   Per-device, per-date-range raw data pulls
+    -   Returns raw JSON responses only
+    -   Fetches data types cocurrrently in on device
+
+COVERAGE: 29 data types across activity, health metrics, sleep, IRN, and ECG scopes (see DATA_TYPES). 
+    Each type may use one of several request/response conventions, see below
+
+HANDLES (each confirmed via live API testing, not assumed):
+    -   Most types: standard dataPoints.list with a filter query param, full UTC timestamp ("...T00:00:00Z").
+    -   CIVIL_DATE_TYPES (daily-* types): filter expects a bare civil date ("2026-01-10"), no time component — full timestamp is rejected (400).
+    -   CIVIL_START_TIME_TYPES (exercise): filter field is civil_start_time, but the RESPONSE only contains startTime/endTime under interval — filter field and response field genuinely differ (see EXTRACT_FIELD_OVERRIDES).
+    -   START_ONLY_TYPES (electrocardiogram): only accepts a lower-bound filter; an upper-bound clause is rejected (400).
+    -   DAILY_ROLLUP_TYPES (floors, calories-in-heart-rate-zone): don't support dataPoints.list at all — require the dailyRollUp endpoint instead, with its own per-type max query duration (ROLLUP_MAX_DURATION_DAYS) that varies by data type and must be chunked accordingly.
+
+AUTH SAFETY: extract_raw_data() defaults to allow_interactive=False — un-onboarded devices fail loudly with a clear re-onboarding instruction rather than silently opening a browser. 
+Only onboard_new_fitbit.py should ever pass allow_interactive=True. 
+
+CONCURRENCY & RETRIES: concurrent fetches for one device are bounded by MAX_WORKERS_PER_DEVICE. 
+    -   Individual requests retry with exponential backoff on 429 (rate limited) or 5xx (server error) — see _request_with_retry.
+    -   No 429s observed yet at current settings; if the API starts rate-limiting in practice, MAX_WORKERS_PER_DEVICE is the number to tune down.
+NOTE: extract.py separately threads across devices, so TOTAL COCURRENT REQUESTS = MAX_WORKERS_PER_DEVICE * DEVICES being pulled simultaneously. 
+
+KNOWN UNKNOWNS:
+  - 'floors' works structurally (no errors) but has returned zero real data points in every test so far — unclear why.
+
+This file exists for one uniform extract_raw_data() call.
 """
 
 from datetime import datetime, timedelta
+import time
 import requests
 from extract.config.tokens import get_fitbit_token
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
-MAX_WORKERS_PER_DEVICE = 4  # bounded on purpose — extract.py already threads across devices, 
+# ============================================================================================================
+
+
+MAX_WORKERS_PER_DEVICE = 4  # bounded on purpose — extract.py already threads across devices,
                             # so an unbounded pool here would multiply out to dozens of simultaneous requests against the same API project
+
+MAX_RETRIES = 3
+RETRY_BACKOFF_SECONDS = 2   # doubles each retry: 2s, 4s, 8s — only applies to 429 (rate limited) and 5xx (server error)
 
 BASE_URL = "https://health.googleapis.com/v4"
 
@@ -29,7 +61,7 @@ DATA_TYPES = [
     "active-zone-minutes",          # interval, note: based on heart rate
     "active-energy-burned",         # interval, note: accelerometer+heart rate, calories burned per min when activity level>"Sedentary",  estimated energy expenditure above resting Basal Metabolic Rate (BMR) calories (the energy burned for just existing)
     "activity-level",               # interval, note: autodetected or manual override, four zones: Sedentary, Lightly Active, Fairly Active, Very Active
-    "calories-in-heart-rate-zone",  # interval, note: heart rate+manual profile entry 
+    "calories-in-heart-rate-zone",  # interval, note: heart rate+manual profile entry
     "daily-vo2-max",                # daily, note: cardio fittness score, estimate of max oxygen uptake (ml/kg/min), resting score during sleep (used as baseline); active score during GPS-enabled run/walk
     "floors",                       # interval, note: dataPoints.list unsupported by API — pulled via dailyRollUp instead (see DAILY_ROLLUP_TYPES)
 
@@ -48,7 +80,7 @@ DATA_TYPES = [
     "daily-sleep-temperature-derivations", # daily avg, note: only for night
     "blood-glucose",                 # sample, note: manual profile entry
     "body-fat",                      # sample, note: manual profile entry
-    "height",                        # sample, note: manual profile entry 
+    "height",                        # sample, note: manual profile entry
     "weight",                        # sample, note: manual profile entry
 
     # scope: sleep
@@ -70,8 +102,8 @@ FILTER_FIELDS = {
     "sedentary-period": "sedentary_period.interval.start_time",
     "active-minutes": "active_minutes.interval.start_time",
     "active-zone-minutes": "active_zone_minutes.interval.start_time",
-    "active-energy-burned": "active_energy_burned.interval.start_time",  
-    "activity-level": "activity_level.interval.start_time",              
+    "active-energy-burned": "active_energy_burned.interval.start_time",
+    "activity-level": "activity_level.interval.start_time",
 
     # Sample type
     "heart-rate": "heart_rate.sample_time.physical_time",
@@ -79,11 +111,11 @@ FILTER_FIELDS = {
     "oxygen-saturation": "oxygen_saturation.sample_time.physical_time",
     "core-body-temperature": "core_body_temperature.sample_time.physical_time",
     "respiratory-rate-sleep-summary": "respiratory_rate_sleep_summary.sample_time.physical_time",
-    "calories-in-heart-rate-zone": "calories_in_heart_rate_zone.sample_time.physical_time",  
-    "blood-glucose": "blood_glucose.sample_time.physical_time",  
-    "body-fat": "body_fat.sample_time.physical_time",             
-    "height": "height.sample_time.physical_time",                 
-    "weight": "weight.sample_time.physical_time",                
+    "calories-in-heart-rate-zone": "calories_in_heart_rate_zone.sample_time.physical_time",
+    "blood-glucose": "blood_glucose.sample_time.physical_time",
+    "body-fat": "body_fat.sample_time.physical_time",
+    "height": "height.sample_time.physical_time",
+    "weight": "weight.sample_time.physical_time",
 
     # Daily type — API requires a plain civil date ("2026-01-10"), not a full
     # timestamp; confirmed via INVALID_DATA_POINT_FILTER_CIVIL_DATE_TIME_FORMAT
@@ -93,7 +125,7 @@ FILTER_FIELDS = {
     "daily-oxygen-saturation": "daily_oxygen_saturation.date",
     "daily-respiratory-rate": "daily_respiratory_rate.date",
     "daily-sleep-temperature-derivations": "daily_sleep_temperature_derivations.date",
-    "daily-vo2-max": "daily_vo2_max.date",   
+    "daily-vo2-max": "daily_vo2_max.date",
 
     # Session type
     "sleep": "sleep.interval.end_time",
@@ -103,15 +135,15 @@ FILTER_FIELDS = {
 }
 
 
-# Data types whose filter field expects a plain civil date ("2026-01-10"), not a full timestamp 
-# Confirmed via API error message.
+# Data types whose filter field expects a plain civil date ("2026-01-10"), not a full timestamp.
+# Confirmed via API error message (INVALID_DATA_POINT_FILTER_CIVIL_DATE_TIME_FORMAT).
 CIVIL_DATE_TYPES = {
     "daily-resting-heart-rate", "daily-heart-rate-zones",
     "daily-heart-rate-variability", "daily-respiratory-rate",
     "daily-oxygen-saturation", "daily-sleep-temperature-derivations",
     "daily-vo2-max",
 }
-## testing:
+## quick manual check used to confirm this while debugging:
 #  python -c "
 # from extract.clients.fitbit_client import _extract_timestamp
 # dp = {'dailyRestingHeartRate': {'date': {'year': 2026, 'month': 7, 'day': 9}, 'beatsPerMinute': '67'}}
@@ -119,16 +151,16 @@ CIVIL_DATE_TYPES = {
 # "
 
 
-# Data types that only accept a lower-bound filter — an upper-bound clause causes a 400. 
-# Confirmed for ECG via API error message.
+# Data types that only accept a lower-bound filter — an upper-bound clause causes a 400.
+# Confirmed for ECG via API error message ("Filtering by end time is not supported for ECG").
 START_ONLY_TYPES = {"electrocardiogram"}
 
 
 # Data types using civil_start_time — bare ISO date/datetime, no UTC "Z" suffix.
-# format YYYY-MM-DD[THH:mm:ss], operators >= and < only.
-# Confirmed via Google's docs: pattern is {type}.interval.civil_start_time, and API error message
+# Format: YYYY-MM-DD[THH:mm:ss], operators >= and < only.
+# Confirmed via Google's docs (pattern: {type}.interval.civil_start_time) and API error message.
 CIVIL_START_TIME_TYPES = {"exercise"}
-## testing...
+## quick manual check used to confirm this while debugging:
 # python -c "
 # from extract.config.tokens import get_fitbit_token
 # from extract.clients.fitbit_client import _get_data_points
@@ -138,10 +170,11 @@ CIVIL_START_TIME_TYPES = {"exercise"}
 # print(json.dumps(resp['dataPoints'][0], indent=2))
 # "
 
-# Data types that don't support dataPoints.list at all — the API rejects the "list" action and only supports reconcile/rollUp/dailyRollUp instead.
-# Confirmed for floors via API error message. These get pulled through _get_daily_rollup() rather than _get_data_points(), and their response lives under "rollupDataPoints", not "dataPoints" — handled separately  in find_earliest_data().
+# Data types that don't support dataPoints.list at all — the API rejects the "list" action and only supports reconcile/rollUp/dailyRollUp instead. 
+# Confirmed for floors via API error message. 
+# These get pulled through _get_daily_rollup() rather than _get_data_points(), and their response lives under "rollupDataPoints", not dataPoints" — handled separately in find_earliest_data().
 DAILY_ROLLUP_TYPES = {"floors", "calories-in-heart-rate-zone"}
-## testing...
+## quick manual check used to confirm this while debugging:
 # python -c "
 # from extract.config.tokens import get_fitbit_token
 # from extract.clients.fitbit_client import _get_daily_rollup
@@ -151,22 +184,44 @@ DAILY_ROLLUP_TYPES = {"floors", "calories-in-heart-rate-zone"}
 # print(json.dumps(resp, indent=2)[:2000])
 # "
 
-# Max query duration (days) per dailyRollUp data type — confirmed to vary per type via API error metadata (floors: 90, calories-in-heart-rate-zone: 14).
-# Default conservatively to 14 for any future DAILY_ROLLUP_TYPES entries until confirmed otherwise.
+# Max query duration (days) per dailyRollUp data type — confirmed to vary per type
+# via API error metadata (floors: 90, calories-in-heart-rate-zone: 14). Default
+# conservatively to 14 for any future DAILY_ROLLUP_TYPES entries until confirmed.
 ROLLUP_MAX_DURATION_DAYS = {
     "floors": 90,
     "calories-in-heart-rate-zone": 14,
 }
 
-# Some data types use a different field for filtering than for reading the actual value back out of the response — exercise is filtered via civil_start_time but the response only contains startTime/endTime under interval, not civilStartTime. 
-# floors is pulled via dailyRollUp, whose response uses civilStartTime, not any FILTER_FIELDS-listed path (floors has no FILTER_FIELDS entry at all, since it never goes through the filter query param). 
-# This maps data_type -> the real extraction path, overriding FILTER_FIELDS for extraction purposes only when it differs.
+# Some data types use a different field for FILTERING than for READING the value
+# back out of the response. exercise is filtered via civil_start_time, but the
+# response only contains startTime/endTime nested under interval — no civilStartTime
+# key exists in the actual payload. floors/calories-in-heart-rate-zone are pulled via
+# dailyRollUp, whose response uses a top-level civilStartTime with no data-type
+# prefix at all (they have no FILTER_FIELDS entry, since they never go through the
+# filter query param in the first place). This maps data_type -> the real extraction
+# path, overriding FILTER_FIELDS for extraction purposes only when the two differ.
 EXTRACT_FIELD_OVERRIDES = {
     "exercise": "exercise.interval.start_time",
     "floors": "civil_start_time",
     "calories-in-heart-rate-zone": "civil_start_time",
 }
 
+# ============================================================================================================
+
+
+def _request_with_retry(method: str, url: str, **kwargs) -> requests.Response:
+    """
+    Thin wrapper around requests.request() that retries on 429 (rate limited) or 5xx (server error) with exponential backoff. 
+    Non-retryable errors (4xx other than 429) are returned as-is on the first attempt — the caller's own .raise_for_status() handles those.
+    """
+    for attempt in range(1, MAX_RETRIES + 1):
+        resp = requests.request(method, url, **kwargs)
+        is_retryable = resp.status_code == 429 or resp.status_code >= 500
+        if not is_retryable or attempt == MAX_RETRIES:
+            return resp
+        time.sleep(RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1)))
+
+    raise RuntimeError("MAX_RETRIES must be >= 1 — no request was attempted")
 
 
 def _build_filter_expr(data_type: str, field: str, start_date: str, end_date: str) -> str:
@@ -192,7 +247,8 @@ def _get_data_points(access_token: str, data_type: str, start_date: str, end_dat
 
     filter_expr = _build_filter_expr(data_type, field, start_date, end_date)
 
-    resp = requests.get(
+    resp = _request_with_retry(
+        "GET",
         f"{BASE_URL}/users/me/dataTypes/{data_type}/dataPoints",
         headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
         params={"filter": filter_expr},
@@ -233,7 +289,8 @@ def _get_daily_rollup(access_token: str, data_type: str, start_date: str, end_da
             "windowSizeDays": 1,
         }
 
-        resp = requests.post(
+        resp = _request_with_retry(
+            "POST",
             f"{BASE_URL}/users/me/dataTypes/{data_type}/dataPoints:dailyRollUp",
             headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
             json=body,
@@ -261,8 +318,10 @@ def _fetch_one_type(access_token: str, data_type: str, start_date: str, end_date
         return data_type, None, e
 
 
-def get_profile(access_token: str) -> dict: # shared between onboarding smoke-test and normal pulls
-    resp = requests.get(
+def get_profile(access_token: str) -> dict:
+    """Shared between onboarding's smoke-test check and normal profile pulls."""
+    resp = _request_with_retry(
+        "GET",
         f"{BASE_URL}/users/me/profile",
         headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
     )
@@ -276,8 +335,10 @@ def _to_camel(s: str) -> str:
 
 
 def _extract_timestamp(data_type: str, dp: dict):
-    """Pulls the timestamp out of one data point. Uses FILTER_FIELDS as the default source of truth for where it lives in the response, except for
-    data types in EXTRACT_FIELD_OVERRIDES where the filter field and the actual response field differ."""
+    """
+    Pulls the timestamp out of one data point. Uses FILTER_FIELDS as the default source of truth for where it lives in the response.
+    Except for data types in EXTRACT_FIELD_OVERRIDES where the filter field and the actual response field differ (see EXTRACT_FIELD_OVERRIDES comment above for why that happens).
+    """
     field_path = EXTRACT_FIELD_OVERRIDES.get(data_type) or FILTER_FIELDS.get(data_type)
     if not field_path:
         return None
@@ -290,16 +351,16 @@ def _extract_timestamp(data_type: str, dp: dict):
         val = val[key]
     return val
 
+
 def _normalize_timestamp(data_type: str, value) -> str | None:
     """
     Converts an extracted timestamp value into a comparable ISO-ish string, regardless of which shape the API returned it in. 
-    Handles three cases seen across Fitbit/Google Health responses so far:
+    Handles three cases sees across Fitbit/Google Health responses so far:
         - plain string (interval/sample types, e.g. "2026-07-09T15:31:00Z")
         - flat civil-date dict (daily-* types, e.g. {"year", "month", "day"})
-        - nested civil-date dict under "date" (session types like exercise,
-        and rollup types like floors, e.g. {"date": {"year", "month", "day"}, "time": {...}})
-    Returns None for unrecognized shapes (doesn't abort the scan across all data types) but prints a warning.
-    NOTE: An unrecognized shape must stay visibly distinct fto avoid masking a real parsing bug.
+        - nested civil-date dict under "date" (session types like exercise, and rollup types like floors, e.g. {"date": {"year", "month", "day"}, "time": {...}})
+    Returns None for unrecognized shapes rather than raising — this keeps the scan across all data types from aborting on one bad type — but prints a warning!
+    NOTE: An unrecognized shape must ALWAYS stay visibly distinct from a genuinely empty result.
     """
     if value is None:
         return None
@@ -315,9 +376,10 @@ def _normalize_timestamp(data_type: str, value) -> str | None:
     print(f"    ⚠️ '{data_type}': unrecognized timestamp shape, could not parse: {value!r}")
     return None
 
-def find_earliest_data(device_id: str, start_date: str, end_date: str) -> dict[str, str | None]:
+
+def find_earliest_data(device: dict, start_date: str, end_date: str) -> dict[str, str | None]:
     """Returns {data_type: earliest_date_str_or_None} for this device over the given range."""
-    raw = extract_raw_data({"id": device_id}, start_date, end_date)
+    raw = extract_raw_data(device, start_date, end_date)
     earliest = {}
     for data_type, payload in raw.items():
         if data_type == "profile":
@@ -346,9 +408,11 @@ def extract_raw_data(device: dict, start_date: str, end_date: str, allow_interac
     Pulls all Fitbit data types for one device over one date range.
     Returns raw, unmodified JSON response:
         {"steps": {...}, "heart-rate": {...}, "sleep": {...}, "distance": {...}, "profile": {...}}
-    Any single data type failing doesn't stop the others. Data types are
-    fetched concurrently, bounded to MAX_WORKERS_PER_DEVICE to avoid stacking on top of extract.py's own per-device threading.
-    No parsing here — that's transform's job, later
+    Any single data type failing doesn't stop the others. 
+    Data types are fetched concurrently, bounded to MAX_WORKERS_PER_DEVICE to avoid stacking on top of extract.py's own per-device threading. 
+    The access token is fetched ONCE, before the pool starts, and reused read-only across all workers.
+    No OAuth-related concurrency risk here (that risk is specific to onboarding, guarded separately via allow_interactive).
+    No parsing here — that's transform's job, later.
     """
     device_id = device["id"]
 

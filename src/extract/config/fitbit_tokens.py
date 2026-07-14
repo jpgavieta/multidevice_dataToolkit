@@ -1,8 +1,8 @@
 # src/extract/config/fitbit_tokens.py
 """
-Fitbit / Google Health
-- Each physical device has its own Google account and generated token file (per-device tokens).
-- OAuth client (client_id/client_secret) is shared across all devices
+Google Health OAuth
+    -   Each physical device has its own Google account and generated token file (per-device tokens).
+    -   OAuth client (client_id/client_secret) is shared across all devices
 NOTE: Each _tokens.py module NEVER touch each other — ONLY tokens.py
 """
 
@@ -14,6 +14,9 @@ from pathlib import Path
 from urllib.parse import urlencode, urlparse, parse_qs
 
 import requests
+
+# ============================================================================================================
+
 
 # fitbit_tokens.py
 CONFIG_DIR = Path(__file__).resolve().parent   # .../src/extract/config
@@ -57,6 +60,8 @@ SCOPES = [
     # worth testing early rather than assuming it'll just work.
     "https://www.googleapis.com/auth/googlehealth.ecg.readonly",
 ]
+
+# ============================================================================================================
 
 
 def _load_client_secrets():

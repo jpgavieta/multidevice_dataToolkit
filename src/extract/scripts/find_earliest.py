@@ -23,7 +23,10 @@ from datetime import date, timedelta
 
 from general.device_registry import load_devices
 from extract.clients import fitbit_client
-from extract.clients import atmotube_client   # add once key arrives
+from extract.clients import atmotube_client  
+
+# ============================================================================================================
+
 
 LOOKBACK_DAYS = 180 
 
@@ -31,6 +34,8 @@ FINDER_REGISTRY = {
     "fitbit": fitbit_client.find_earliest_data,
     "atmotube": atmotube_client.find_earliest_data,
 }
+
+# ============================================================================================================
 
 
 def main():

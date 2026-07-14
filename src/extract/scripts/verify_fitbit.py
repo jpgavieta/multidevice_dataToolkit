@@ -35,6 +35,8 @@ from general.device_registry import load_devices
 from extract.config.tokens import get_fitbit_token
 from extract.clients.fitbit_client import get_profile
 
+# ============================================================================================================
+
 
 def _has_valid_token(device_id: str) -> bool:
     """Checks for an existing, working token without triggering the OAuth flow."""

@@ -12,8 +12,12 @@ TO ADD A NEW DEVICE API:
 """
 
 from .fitbit_tokens import get_access_token as _fitbit_get_access_token
-from .atmotube_tokens import get_api_key as get_atmotube_api_key
-from .atmotube_tokens import get_mac_for_device as get_atmotube_mac_for_device
+from .atmotube_tokens import get_api_key as _atmotube_get_api_key
+
 
 def get_fitbit_token(device_id: str, allow_interactive: bool = False) -> str:
     return _fitbit_get_access_token(device_id, allow_interactive=allow_interactive)
+
+
+def get_atmotube_api_key(site: str, key_path: str | None = None) -> str:
+    return _atmotube_get_api_key(site, key_path)
