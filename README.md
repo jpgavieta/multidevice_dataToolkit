@@ -45,8 +45,8 @@ The data pipeline starts from whereever the data is kept. It is triggered upon c
 ├── .env                          # gitignored — DB connection vars, Grafana admin creds
 │
 ├── config/ 
-│   ├── devices.yaml               # device registry + site→credential mapping
-│   └── schedule.yaml              # human-editable schedule config (which job, how often)
+│   ├── devices.yml               # device registry + site→credential mapping
+│   └── schedule.yml              # human-editable schedule config (which job, how often)
 │~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 │
 ├── deploy/                   ## DB+VIZ DEPLOYMENT
@@ -81,13 +81,13 @@ The data pipeline starts from whereever the data is kept. It is triggered upon c
 │   │
 │   ├── scheduler/                  
 │   │   ├── __init__.py
-│   │   ├── scheduler.py            # builds APScheduler instance, loads jobs from schedule.yaml
+│   │   ├── scheduler.py            # builds APScheduler instance, loads jobs from schedule.yml
 │   │   └── jobs.py                 # wraps E→T→L pipeline calls as schedulable job functions; tenacity retry/backoff in here
 │   │
 │   ├── general/
 │   │   ├── __init__.py
 │   │   ├── utils.py                # shared logic (e.g. column type autodetection), includes pipeline_runs health queries
-│   │   ├── device_registry.py      # loads/validates devices.yaml
+│   │   ├── device_registry.py      # loads/validates devices.yml
 │   │   └── run_logger.py           # writes to pipeline_runs table
 │   │
 │   ├── extract/
@@ -99,20 +99,21 @@ The data pipeline starts from whereever the data is kept. It is triggered upon c
 │   │   │   ├── __init__.py
 │   │   │   ├── atmotube_client.py
 │   │   │   └── fitbit_client.py
+│   │   │
+│   │   ├── scripts/                # used to debug device onboarding + data init process
+│   │   │   └── ...
+│   │   │
 │   │   └── config/
 │   │       ├── __init__.py
 │   │       ├── tokens.py           # resolves site → env var name → secret
 │   │       ├── fitbit_tokens.py    
 │   │       └── secrets/            # gitignored — everything under here, no exceptions
 │   │           ├── fitbit/
-│   │           │   ├── client_secret.json # shared OAuth client, one file
-│   │           │   ├── accounts.yml       # device_id: google_account
-│   │           │   └── tokens/
-│   │           │       ├── fitbit_ko1_01.json
-│   │           │       ├── fitbit_ko1_02.json
-│   │           │       └── ...
+│   │           │   └── ...
 │   │           └── atmotube/
-│   │               └── ...
+│   │               ├── ...
+│   │               └── backfill/
+│   │                   └── ...     # all raw CSVs from Atmotubes since May
 │   │
 │   ├── transform/
 │   │   ├── __init__.py
