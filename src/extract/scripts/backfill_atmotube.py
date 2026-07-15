@@ -16,9 +16,9 @@ Fields the CSV export does NOT include (legitimately null, not a bug):
     satellites_fixed, satellites_in_view, snr0_19, snr20_49, snr50_99, snr_avg
 
 USAGE:
-python -m extract.scripts.backfill_atmotube                 # all devices found
-python -m extract.scripts.backfill_atmotube --device atmotube_kol_01
-python -m extract.scripts.backfill_atmotube --dry-run        # no output file
+    python -m extract.scripts.backfill_atmotube                 # all devices found
+    python -m extract.scripts.backfill_atmotube --device atmotube_kol_01
+    python -m extract.scripts.backfill_atmotube --dry-run        # no output file
 """
 
 import argparse
@@ -38,7 +38,8 @@ FILENAME_RE = re.compile(r"^([A-Fa-f0-9]{12})_.*\.csv$")
 KOLKATA_UTC_OFFSET = timedelta(hours=5, minutes=30)
 
 # CSV column name -> API MeasurementItem field name.
-# Matched by header NAME, not position, in case some device exports differ slightly (firmware version, app version, etc.) — do not assume column order.
+# Matched by header NAME, not position, in case some device exports differ
+# slightly (firmware version, app version, etc.) — do not assume column order.
 COLUMN_MAP = {
     "AQS": "aqs",
     "PM1.0 (µg/m³)": "pm1",
@@ -101,8 +102,7 @@ def _row_to_measurement(row: pd.Series, date_col: str) -> dict:
     }
 
     for csv_col, api_field in COLUMN_MAP.items():
-        val = row.get(csv_col)
-        record[api_field] = None if pd.isna(val) else val
+        record[api_field] = _to_number(row.get(csv_col))
 
     for field in ALWAYS_NULL_FIELDS:
         record[field] = None
@@ -111,9 +111,92 @@ def _row_to_measurement(row: pd.Series, date_col: str) -> dict:
 
 
 def _load_one_csv(path: Path) -> pd.DataFrame:
+    """
+    Manual line-splitting instead of pd.read_csv, because the last column ("User Notes") is free-text and can contain unescaped commas.
+    This breaks pandas' C parser outright ("Expected 22 fields, saw 23") since it has no way to know an extra comma is a real extra field.
+
+    Since User Notes is always the LAST column and isn't used downstream (not in COLUMN_MAP), splitting each line on only the first (n_cols - 1)
+    commas sidesteps the ambiguity entirely: everything after that point collapses into one final field.
+
+    Trade-off: bypassing pandas' parser means no automatic type inference — every value comes in as a raw string (or '' for empty cells). 
+    Numeric conversion/None-handling happens explicitly in _row_to_measurement().
+    """
     # utf-8-sig handles the BOM at the start of the header row
     # (seen as "\ufeffDate (UTC+05:30)" in the raw file)
-    return pd.read_csv(path, encoding="utf-8-sig")
+    with open(path, encoding="utf-8-sig") as f:
+        lines = f.read().splitlines()
+
+    if not lines:
+        raise ValueError(f"Empty file: {path}")
+
+    header = lines[0].split(",")
+    n_cols = len(header)
+
+    rows = []
+    for i, line in enumerate(lines[1:], start=2):
+        if not line.strip():
+            continue
+        parts = line.split(",", maxsplit=n_cols - 1)
+        if len(parts) < n_cols:
+            print(  f"  ⚠️ {path.name} line {i}: expected {n_cols} fields, got {len(parts)} "
+                    f"— padding with blanks")
+            parts += [""] * (n_cols - len(parts))
+        rows.append(parts)
+
+    return pd.DataFrame(rows, columns=header)
+
+
+def _to_number(val):
+    """Explicit numeric conversion — needed now that _load_one_csv no longer
+    lets pandas infer types. Returns None for blank/unparseable values."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if s == "" or s.lower() == "nan":
+        return None
+    try:
+        f = float(s)
+        return int(f) if f.is_integer() else f
+    except ValueError:
+        return None
+
+
+def _dedupe_records(all_records: list) -> tuple:
+    """
+    Groups records by timestamp and checks whether duplicates are TRUE re-export overlaps (identical values — safe to drop extras) or
+    CONFLICTING readings at the same timestamp (different values — a real data-quality question, not something to silently discard).
+
+    Returns (deduped_records, conflict_count).
+    """
+    by_date: dict = {}
+    for r in all_records:
+        by_date.setdefault(r["date"], []).append(r)
+
+    deduped = []
+    conflicts = 0
+    for dt, group in by_date.items():
+        if len(group) == 1:
+            deduped.append(group[0])
+            continue
+
+        # Compare all fields — if every duplicate is identical, it's a
+        # safe re-export overlap (e.g. adjacent daily exports whose start/end
+        # dates are both inclusive, so the boundary day appears in both files).
+        first = group[0]
+        all_identical = all(g == first for g in group[1:])
+
+        if all_identical:
+            deduped.append(first)
+        else:
+            conflicts += 1
+            print(  f"  ❌ CONFLICTING values at {dt} across {len(group)} duplicate(s) — "
+                    f"keeping first, but this needs manual review:")
+            for g in group:
+                print(f"       {g}")
+            deduped.append(first)  # arbitrary choice, flagged loudly above
+
+    deduped.sort(key=lambda r: r["date"])
+    return deduped, conflicts
 
 
 def _group_files_by_mac() -> dict:
@@ -157,23 +240,59 @@ def process_device(mac: str, files: list, mac_to_device: dict) -> dict:
 
     all_records.sort(key=lambda r: r["date"])
 
-    # Duplicate check across combined files, same category of check used
-    # elsewhere in this pipeline for live-API pagination
-    dates = [r["date"] for r in all_records]
-    dupes = len(dates) - len(set(dates))
-    if dupes:
-        print(  f"  ⚠️ {dupes} duplicate timestamp(s) across combined files — "
-                f"check for overlapping export date ranges")
+    deduped_records, conflicts = _dedupe_records(all_records)
+    dropped = len(all_records) - len(deduped_records) - conflicts
+    if dropped or conflicts:
+        print(  f"  De-duplication: {len(all_records)} raw rows -> {len(deduped_records)} unique "
+                f"({dropped} identical-duplicate row(s) dropped, {conflicts} conflicting timestamp(s) flagged above)")
 
-    print(f"  Total records: {len(all_records)}")
-    if all_records:
-        print(f"  Range: {all_records[0]['date']} .. {all_records[-1]['date']}  (UTC)")
+    print(f"  Total records: {len(deduped_records)}")
+    if deduped_records:
+        print(f"  Range: {deduped_records[0]['date']} .. {deduped_records[-1]['date']}  (UTC)")
 
     return {
         "mac": mac,
         "device_id": device_id,
-        "merged_data": all_records,
+        "merged_data": deduped_records,
     }
+
+
+def write_to_db(results: dict):
+    """
+    Reshapes backfill results into the exact {device_type: {device_id: payload}} structure load_raw_data() already expects from a live extract_all_devices() run, and calls it directly.
+    No separate DB logic here, so backfilled rows go through the identical insert path (and pulled_at convention: one now(UTC) timestamp for the whole batch) as live pulls.
+
+    Each payload matches atmotube_client.extract_raw_data()'s live-pull shape exactly: 
+    {"mac", "start_date", "end_date", "merged_data", "raw_payload"}.
+
+    A "source": "csv_backfill" key is added on top — harmless if transform reads fields via .get(), useful for later auditing (distinguishing
+    backfilled rows from live-pulled ones without relying on pulled_at clustering alone). 
+    NOTE: Drop it if transform does strict key validation instead.
+    """
+    from load.load import load_raw_data
+
+    all_data = {"atmotube": {}}
+    for mac, result in results.items():
+        device_id = result["device_id"]
+        if device_id.startswith("UNKNOWN_DEVICE"):
+            print(f"  ⚠️ Skipping mac={mac} — not mapped in devices.yml, fix before loading")
+            continue
+
+        records = result["merged_data"]
+        if not records:
+            print(f"  ⚠️ Skipping '{device_id}' — no records")
+            continue
+
+        all_data["atmotube"][device_id] = {
+            "mac": mac,
+            "start_date": records[0]["date"][:10],
+            "end_date": records[-1]["date"][:10],
+            "merged_data": records,
+            "raw_payload": None,  # no live API response object for backfilled data
+            "source": "csv_backfill",
+        }
+
+    load_raw_data(all_data)
 
 
 def main():
@@ -181,6 +300,7 @@ def main():
     parser.add_argument("--device", default=None, help="Only process this device_id")
     parser.add_argument("--dry-run", action="store_true", help="Parse and report only, write nothing")
     parser.add_argument("--out", default=None, help="Output path for JSON (default: prints summary only)")
+    parser.add_argument("--write-db", action="store_true", help="Insert into raw.api_pulls")
     args = parser.parse_args()
 
     mac_to_device = _mac_to_device_id_map()
@@ -209,14 +329,19 @@ def main():
         print("\n--dry-run set: no output written.")
         return
 
+    if args.write_db:
+        print("\nWriting to raw.api_pulls...")
+        write_to_db(results)
+        return
+
     if args.out:
         out_path = Path(args.out)
         out_path.write_text(json.dumps(results, indent=2))
         print(f"\n✅ Wrote {out_path}")
     else:
-        print(  "\nNo --out path given — results computed but not written. "
-                "Pass --out <path.json> to save, or import process_device()/"
-                "main() logic directly into your load step.")
+        print(  "\nNo --out or --write-db given — results computed but not saved. "
+                "Pass --out <path.json> to inspect as a file, or --write-db to insert "
+                "into raw.api_pulls.")
 
 
 if __name__ == "__main__":

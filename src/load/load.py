@@ -1,8 +1,8 @@
 # src/load/load.py
 """
-Pushes raw API payloads into the database. No transform/parsing here —
-raw.api_pulls stores exact API responses as JSONB (JSONs as binary not text); processed tables are
-populated separately, later, by the transform step.
+Pushes raw API payloads and processed data into the database. 
+    -   raw.api_pulls stores exact API responses as JSONB (JSONs as binary not text)
+    -   processed tables are populated separately, later, by the transform step.
 """
 
 import os
