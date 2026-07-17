@@ -178,8 +178,8 @@ def _parse_sleep(points: list, device_id: str) -> tuple[list, list]:
             stages.append({
                 "device_id": device_id,          # resolved to session_id in load.py, after the session insert
                 "session_start_at": start,        # join key back to the parent session row
-                "started_at": pd.to_datetime(stage["startTime"], utc=True),
-                "ended_at": pd.to_datetime(stage["endTime"], utc=True),
+                "start_at": pd.to_datetime(stage["startTime"], utc=True),
+                "end_at": pd.to_datetime(stage["endTime"], utc=True),
                 "stage_type": stage.get("type"),
             })
     return sessions, stages

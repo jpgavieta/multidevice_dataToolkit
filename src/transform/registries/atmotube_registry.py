@@ -1,19 +1,19 @@
-# transform/parsers/atmotube_registry.py
+# transform/registries/atmotube_registry.py
 
 ATMOTUBE_REGISTRY = {
     # raw_key:            (standard_name,          unit,        dtype,      category)
-    "aqs":                ("aqs",                  "index",     "Int64",    "weather"),
+    "aqs":                ("aqs_index",           "index",     "Int64",    "weather"),
     "pm1":                ("pm1",                  "ugm3",      "float64",  "pm"),
-    "pm25":               ("pm25",                 "ugm3",      "float64",  "pm"),
+    "pm25":               ("pm2_5",                 "ugm3",      "float64",  "pm"),
     "pm10":               ("pm10",                 "ugm3",      "float64",  "pm"),
     "pm_size":            ("pm_size",              "nm",        "float64",  "pm"),
-    "pm05_num":           ("pm05_num",             "count",     "Int64",    "pm"),
+    "pm05_num":           ("pm0_5_num",             "count",     "Int64",    "pm"),
     "pm1_num":            ("pm1_num",              "count",     "Int64",    "pm"),
     "pm10_num":           ("pm10_num",             "count",     "Int64",    "pm"),
-    "pm25_num":           ("pm25_num",             "count",     "Int64",    "pm"),
-    "t":                  ("tep",                    "celsius",   "float64",  "weather"),
-    "h":                  ("h",                    "pct",       "float64",  "weather"),
-    "p":                  ("p",                    "hpa",       "float64",  "weather"),
+    "pm25_num":           ("pm2_5_num",             "count",     "Int64",    "pm"),
+    "t":                  ("temperature",          "celsius",   "float64",  "weather"),
+    "h":                  ("humidity",             "pct",       "float64",  "weather"),
+    "p":                  ("pressure",             "hpa",       "float64",  "weather"),
     "voc":                ("voc",                  "ppm",       "float64",  "gas"),
     "voc_index":          ("voc_index",             "index",    "Int64",    "gas"),
     "nox_index":          ("nox_index",             "index",    "Int64",    "gas"),

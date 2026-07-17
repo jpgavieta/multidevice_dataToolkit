@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS study.pipeline_runs (
     device_type   TEXT NOT NULL,
     device_id     TEXT NOT NULL,
     started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    finished_at   TIMESTAMPTZ,
+    ended_at   TIMESTAMPTZ,
     status        TEXT NOT NULL,
     error_message TEXT
 );
