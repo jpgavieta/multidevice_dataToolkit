@@ -1,14 +1,12 @@
-# transform/parsers/fitbit_parser.py
+# transform/parse/fitbit_parser.py
 """
-Parses raw Fitbit / Google Health API responses (from extract/clients/fitbit_client.py)
-into row-dicts matching fitbit.readings / fitbit.states / fitbit.sleep_sessions /
-fitbit.sleep_stages / fitbit.exercise_sessions — ready for execute_values(), not DataFrames.
+Parses raw Fitbit / Google Health API responses (from extract/clients/fitbit_client.py) into row-dicts matching:
+    -   fitbit.readings / fitbit.sleep_sessions / fitbit.sleep_stages / fitbit.exercise_sessions — ready for execute_values(), not DataFrames.
 
-Timestamps: 'sample' and 'interval' grain fields (startTime/endTime/physicalTime)
-are already Z-normalized UTC — parsed directly, no conversion. 'daily' grain
-fields are a bare {year, month, day} with no offset — these are localized to
-midnight in the DEVICE'S declared timezone (from study.devices / devices.yml),
-then converted to UTC. civilStartTime/civilEndTime are never used for timestamps.
+Timestamps: 
+    -   'sample' and 'interval' grain fields (startTime/endTime/physicalTime are already Z-normalized UTC — no conversion needed. 
+    -   'daily' grain fields are a bare {year, month, day} with no offset — these are localized to midnight in the DEVICE'S declared timezone (from study.devices / devices.yml), then converted to UTC.
+    -   civilStartTime/civilEndTime are never used for timestamps.
 """
 
 from datetime import datetime, timedelta
@@ -17,12 +15,12 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from ..register.fitbit_registry import FITBIT_REGISTRY, BESPOKE_DATA_TYPES, UNMAPPED_DATA_TYPES
+from ..register.fitbit_registry import FITBIT_REGISTRY, BESPOKE_DATA_TYPES, UNMAPPED_DATA_TYPES, DROPPED_DATA_TYPES
 
 
 def _to_camel(data_type: str) -> str:
-    """'daily-resting-heart-rate' -> 'dailyRestingHeartRate' — matches the
-    nested key Fitbit wraps each data point's payload in."""
+    """'daily-resting-heart-rate' -> 'dailyRestingHeartRate' 
+    Matches the nested key Fitbit wraps each data point's payload in."""
     head, *rest = data_type.split("-")
     return head + "".join(w.capitalize() for w in rest)
 
@@ -77,17 +75,15 @@ def _parse_registry_type(data_type: str, points: list, device_id: str, tz_name: 
         base = {"device_id": device_id, "data_type": data_type, "grain": grain,
                 "recorded_at": start, "end_at": end}
 
-        if rules["destination"] == "states":
-            label = (_get(nested, rules["state_field"])
-                      if rules["state_field"] else rules["constant_label"])
-            rows.append({**base, "state_value": label})
-            continue
-
         kind = rules["kind"]
 
         if kind == "scalar":
             val = _get(nested, rules["value_field"])
             rows.append({**base, "metric": rules["metric"], "tag": None, "value_numeric": val})
+
+        elif kind == "categorical":
+            tag =_get(nested, rules["state_field"])
+            rows.append({**base, "metric": rules["metric"], "tag": tag, "value_numeric": None})
 
         elif kind == "tagged_scalar":
             val = _get(nested, rules["value_field"])
@@ -135,7 +131,7 @@ def _parse_hr_zones(points: list, device_id: str, tz_name: str) -> list:
 def _parse_respiratory_sleep_summary(points: list, device_id: str, tz_name: str) -> list:
     """respiratory-rate-sleep-summary — 4 sleep stages x 3 metrics each, tagged by stage."""
     stage_keys = {"deepSleepStats": "deep", "lightSleepStats": "light",
-                  "remSleepStats": "rem", "fullSleepStats": "full"}
+                "remSleepStats": "rem", "fullSleepStats": "full"}
     field_metrics = {
         "breathsPerMinute": "respiratory_rate_brpm",
         "standardDeviation": "respiratory_rate_stddev",
@@ -217,11 +213,11 @@ def parse(raw_data: dict, device_id: str, timezone: str) -> dict:
     plus the device's declared timezone (from study.devices — needed only for
     'daily' grain records), returns row-dicts keyed by destination table, ready
     for execute_values() — NOT DataFrames:
-    {"readings": [ {...}, ... ], "states": [...], "sleep_sessions": [...],
-     "sleep_stages": [...], "exercise_sessions": [...]} — a key is omitted if
+    {"readings": [ {...}, ... ], "sleep_sessions": [...],
+    "sleep_stages": [...], "exercise_sessions": [...]} — a key is omitted if
     that device's pull had no rows for that destination.
     """
-    readings_rows, states_rows = [], []
+    readings_rows = []
     sleep_sessions, sleep_stages, exercise_rows = [], [], []
 
     for data_type, payload in raw_data.items():
@@ -234,7 +230,7 @@ def parse(raw_data: dict, device_id: str, timezone: str) -> dict:
         if data_type in FITBIT_REGISTRY:
             rules = FITBIT_REGISTRY[data_type]
             rows = _parse_registry_type(data_type, points, device_id, timezone, rules)
-            (states_rows if rules["destination"] == "states" else readings_rows).extend(rows)
+            readings_rows.extend(rows)
 
         elif data_type == "daily-heart-rate-zones":
             readings_rows.extend(_parse_hr_zones(points, device_id, timezone))
@@ -250,6 +246,9 @@ def parse(raw_data: dict, device_id: str, timezone: str) -> dict:
         elif data_type == "exercise":
             exercise_rows.extend(_parse_exercise(points, device_id))
 
+        elif data_type in DROPPED_DATA_TYPES:
+            continue # intentionally droped, see registry comment 
+
         elif data_type in UNMAPPED_DATA_TYPES:
             print(f"⚠️ '{data_type}' has data but no registry mapping yet — skipping {len(points)} point(s).")
 
@@ -259,8 +258,6 @@ def parse(raw_data: dict, device_id: str, timezone: str) -> dict:
     result = {}
     if readings_rows:
         result["readings"] = readings_rows
-    if states_rows:
-        result["states"] = states_rows
     if sleep_sessions:
         result["sleep_sessions"] = sleep_sessions
     if sleep_stages:

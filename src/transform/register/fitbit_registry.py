@@ -1,6 +1,6 @@
-# transform/registries/fitbit_registry.py
+# transform/register/fitbit_registry.py
 """
-Declarative mapping for Fitbit data types that reduce to a lookup rule.
+Declarative mapping for Fitbit's 24 data types → 4 types for a lookup rule.
 Four types (sleep, exercise, daily-heart-rate-zones, respiratory-rate-sleep-summary) are NOT here — their shapes are unique enough that a bespoke function in
 fitbit_parser.py is clearer than forcing them through a generic "kind".
 
@@ -102,21 +102,18 @@ FITBIT_REGISTRY = {
     },
 
     "activity-level": {
-        "grain": "interval", "destination": "states",
-        "state_field": "activityLevelType",
-    },
-    "sedentary-period": {
-        "grain": "interval", "destination": "states",
-        "state_field": None, "constant_label": "SEDENTARY",
+        "grain": "interval", "destination": "readings", "kind": "categorical",
+        "state_field": "activityLevelType", "metric": "activity_level",
     },
 }
 
-# Handled by dedicated functions in fitbit_parser.py, not the generic engine —
-# listed here only so the parser's main loop knows these are accounted for,
-# not silently unmapped.
 BESPOKE_DATA_TYPES = {
     "sleep", "exercise", "daily-heart-rate-zones", "respiratory-rate-sleep-summary",
 }
+
+# sedentary-period is intentionally dropped: activity-level's per-minute activityLevelType already includes a SEDENTARY value at finer granularity,
+# so sedentary-period's coarser derived blocks are fully redundant.
+DROPPED_DATA_TYPES = {"sedentary-period"}
 
 # Seen with 0 points in every sample so far, or deferred (waveform data).
 # Not yet mapped — will warn rather than guess at field names for these.
