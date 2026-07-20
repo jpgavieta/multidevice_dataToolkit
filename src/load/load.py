@@ -5,18 +5,21 @@ Pushes raw API payloads and processed data into the database.
     -   processed tables (fitbit.*, atmotube.*) are populated by load_processed_data(),
         using the row-dicts produced by transform.transform_device_data().
 
-Everything upserts on each table's declared UNIQUE key, so re-pulling overlapping
-date ranges (e.g. backfill windows, or a scheduler retry) is safe — rows get
-updated in place rather than duplicated. raw.ingests is the one exception: it's
-an append-only log of pipeline runs, so every call to load_raw_data() adds new
-rows regardless of payload content.
+Everything upserts on each table's declared UNIQUE key, so re-pulling overlapping date ranges (e.g. backfill windows, or a scheduler retry) is safe.
+    Rows get updated in place rather than duplicated.
+    EXCEPTION: raw.ingests is an append-only log of pipeline runs.
+        Every call to load_raw_data() adds new rows regardless of payload content.
 
 FAILURE ISOLATION: load_processed_data() commits per device_id, not once for
-the whole batch. If device 9 of 13 has a bad record, devices 1-8's (already
-correctly parsed) data stays committed — only device 9's transaction rolls
-back and gets logged as failed in study.pipeline_runs. This trades a little
-efficiency (13 commits instead of 1) for not losing 12 devices' worth of
-correctly-loaded data over one bad device.
+the whole batch.
+E.g. If device 9 of 13 has a bad record, devices 1-8's (already correctly parsed) data stays committed.
+    Only device 9's transaction rolls back and gets logged as failed in study.pipeline_runs.
+    TRADE-OFF: 13 commits instead of 1 for not losing 12 devices' worth of correctly-loaded data over one bad device.
+
+NOTE ON fitbit.readings: this table now absorbs what used to be a separate fitbit.states table. 
+    Categorical/state-type records (e.g. "activity-level", "sedentary-period") route through the SAME ("fitbit", "readings") destination as scalar metrics. See fitbit_registry.py for which data_types are which.
+    State rows populate value_text (and leave value_numeric NULL); scalar rows populate value_numeric (and leave value_text NULL). metric defaults to ''
+    for state rows (not NULL) so the UNIQUE constraint stays reliable. see 04_fitbit.sql.
 """
 
 import os
@@ -37,10 +40,9 @@ ENV_PATH = Path(__file__).resolve().parents[2] / "deploy" / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 
 # Maps (device_type, transform.py table_name) -> (sql_table, conflict_cols) for upserting.
-# sleep_stages is handled separately (needs session_id FK resolution first).
+# NOTE: sleep_stages is handled separately (needs session_id FK resolution first).
 DESTINATION_TABLES = {
     ("fitbit", "readings"):          ("fitbit.readings",          ("device_id", "data_type", "recorded_at", "metric", "tag")),
-    ("fitbit", "states"):            ("fitbit.states",            ("device_id", "data_type", "recorded_at")),
     ("fitbit", "sleep_sessions"):    ("fitbit.sleep_sessions",    ("device_id", "started_at")),
     ("fitbit", "exercise_sessions"): ("fitbit.exercise_sessions", ("device_id", "started_at")),
     ("fitbit", "profile"):           ("fitbit.profile",           ("device_id",)),
@@ -49,8 +51,13 @@ DESTINATION_TABLES = {
 SLEEP_STAGES_TABLE = "fitbit.sleep_stages"
 SLEEP_STAGES_CONFLICT_COLS = ("session_id", "started_at")
 
-# Tables where one column holds a WKT string that needs wrapping in
-# ST_GeomFromEWKT(%s) rather than being inserted as a plain value.
+# Tables where a row's dict must NOT get ingest_id tagged onto it, because the table has no ingest_id column (
+# (it's a slowly-changing snapshot, not a point-in-time event tied to one specific pull).
+NO_INGEST_ID_TABLES = {
+    ("fitbit", "profile"),
+}
+
+# Tables where one column holds a WKT string that needs wrapping in ST_GeomFromEWKT(%s) rather than being inserted as a plain value.
 WKT_COLUMNS = {
     "atmotube.readings": "location",
 }
@@ -71,11 +78,10 @@ def _get_connection():
 def _build_location(latitude, longitude) -> str | None:
     """
     Builds an EWKT point string for atmotube.readings.location, e.g.
-    'SRID=4326;POINT(88.3639 22.5726)' — note WKT/EWKT order is (lon, lat),
-    not (lat, lon); that axis-order mixup is the classic geometry bug this
-    function exists to avoid making by hand at every call site.
-    Returns None if either coordinate is missing (e.g. GPS fix not acquired
-    for that reading) — PostGIS geometry columns are nullable for this reason.
+    'SRID=4326;POINT(88.3639 22.5726)' — note WKT/EWKT order is (lon, lat), not (lat, lon);
+    that axis-order mixup is the classic geometry bug. This function is to avoid making by hand at every call site.
+    Returns None if either coordinate is missing (e.g. GPS fix not acquired for that reading)
+    — PostGIS geometry columns are nullable for this reason.
     """
     if latitude is None or longitude is None:
         return None
@@ -86,12 +92,10 @@ def load_raw_data(all_data: dict[str, dict[str, dict]]) -> dict[tuple[str, str],
     """
     Pushes raw API payloads into raw.ingests, one row per device per pull.
     all_data shape: { device_type: { device_id: {"payload": ..., "ingest_method": ...} } }
-    — matches extract.py's extract_all_devices() output. For CSV backfills
-    (extract/scripts/backfill_atmotube.py), the same shape applies with
-    ingest_method="csv_manual".
+    Matches extract.py's extract_all_devices() output. For CSV backfills (extract/scripts/backfill_atmotube.py).
+    Same shape applies with ingest_method="csv_manual".
 
-    Returns { (device_type, device_id): ingest_id } so load_processed_data()
-    can stamp every processed row with the raw.ingests row it came from.
+    Returns { (device_type, device_id): ingest_id } so load_processed_data() can stamp every processed row with the raw.ingests row it came from.
     """
     pulled_at = datetime.now(timezone.utc)
     keys, rows = [], []
@@ -130,13 +134,12 @@ def load_raw_data(all_data: dict[str, dict[str, dict]]) -> dict[tuple[str, str],
 
 def _upsert_rows(cur, table: str, rows: list[dict], conflict_cols: tuple, returning: tuple = ("id",)) -> list[dict]:
     """
-    Generic upsert: INSERT ... ON CONFLICT (conflict_cols) DO UPDATE, returning the
-    requested columns per row (used for FK resolution, e.g. sleep_sessions -> id).
+    Generic upsert: INSERT ... ON CONFLICT (conflict_cols) DO UPDATE, returning the requested columns per row
+    (used for FK resolution, e.g. sleep_sessions -> id).
     Every row must share the same set of keys (parser output should guarantee this).
 
-    If table appears in WKT_COLUMNS, that one column's placeholder is wrapped in
-    ST_GeomFromEWKT(%s) instead of a plain %s — the value itself must already be
-    an EWKT string (see _build_location()), not a lat/lon pair.
+    If table appears in WKT_COLUMNS, that one column's placeholder is wrapped in ST_GeomFromEWKT(%s) instead of a plain %s.
+    The value itself must already be an EWKT string (see _build_location()), not a lat/lon pair.
     """
     if not rows:
         return []
@@ -147,7 +150,11 @@ def _upsert_rows(cur, table: str, rows: list[dict], conflict_cols: tuple, return
             raise ValueError(f"Inconsistent row columns for {table}: {sorted(row.keys())} vs {sorted(rows[0].keys())}")
 
     update_cols = [c for c in columns if c not in conflict_cols]
-    set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)
+    if not update_cols:
+        # nothing to update on conflict — just make it a no-op update on the conflict key itself
+        set_clause = f"{conflict_cols[0]} = EXCLUDED.{conflict_cols[0]}"
+    else:
+        set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)
     returning_clause = ", ".join(returning)
 
     wkt_col = WKT_COLUMNS.get(table)
@@ -167,11 +174,8 @@ def _upsert_rows(cur, table: str, rows: list[dict], conflict_cols: tuple, return
 
 def _prepare_atmotube_rows(rows: list[dict]) -> list[dict]:
     """
-    Converts each atmotube row's plain latitude/longitude fields into the
-    'location' EWKT string atmotube.readings actually stores, and drops the
-    two lat/lon keys (they're not real columns on that table — see
-    atmotube_parser.py, which emits them only so this function has something
-    to build the geometry from).
+    Converts each atmotube row's plain latitude/longitude fields into the 'location' EWKT string atmotube.readings actually stores, and drops the
+    two lat/lon keys (they're not real columns on that table — see atmotube_parser.py, which emits them only so this function has something to build the geometry from).
     """
     prepared = []
     for row in rows:
@@ -210,7 +214,7 @@ def _load_one_device(cur, device_type: str, device_id: str, data: dict, ingest_i
                 session_id = session_id_by_start.get(session_start)
                 if session_id is None:
                     print(f"   ⚠️ No matching sleep_session for stage at "
-                          f"{row.get('started_at')} ({device_type}/{device_id}) — skipping.")
+                        f"{row.get('started_at')} ({device_type}/{device_id}) — skipping.")
                     continue
                 row["session_id"] = session_id
                 resolved.append(row)
@@ -225,7 +229,11 @@ def _load_one_device(cur, device_type: str, device_id: str, data: dict, ingest_i
             continue
 
         sql_table, conflict_cols = DESTINATION_TABLES[key]
-        tagged_rows = [{**r, "ingest_id": ingest_id} for r in rows]
+
+        if key in NO_INGEST_ID_TABLES:
+            tagged_rows = [dict(r) for r in rows]
+        else:
+            tagged_rows = [{**r, "ingest_id": ingest_id} for r in rows]
 
         if table_name == "readings" and device_type == "atmotube":
             tagged_rows = _prepare_atmotube_rows(tagged_rows)
@@ -244,8 +252,7 @@ def load_processed_data(
     Also logs one study.pipeline_runs row per device (start/finish/status/error),
     via general.run_logger, so failures are visible without reading stdout.
 
-    A device with no ingest_id (its raw.ingests insert failed or was skipped —
-    see load_raw_data()) is skipped entirely here rather than loaded with a NULL
+    A device with no ingest_id (its raw.ingests insert failed/skipped (AKA load_raw_data()) gets skipped entirely here rather than loaded with a NULL
     ingest_id: a processed row with no traceable raw source is worse than no row.
 
     Parameters
@@ -264,7 +271,7 @@ def load_processed_data(
                 ingest_id = ingest_ids.get((device_type, device_id))
                 if ingest_id is None:
                     print(f"⚠️ No ingest_id for {device_type}/{device_id} "
-                          f"(raw.ingests insert likely failed) — skipping processed load.")
+                        f"(raw.ingests insert likely failed) — skipping processed load.")
                     continue
 
                 data = entry.get("data", {})

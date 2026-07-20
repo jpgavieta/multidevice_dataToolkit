@@ -1,16 +1,16 @@
 # config/sources.yml
-# ============================================================================================================
+# ================================================================================
+
 # DEVICES + access info
 # Fitbit google accounts are stored in ./extract/secrets/fitbit/.env.access
 # Atmotube hardware ids are stored in .extract/secrets/atmotube/.env.access
 
-
-fitbit_devices: 
+fitbit_devices:
   - id: fitbit_kol_01
     type: fitbit
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: 2026-05-26 # Confirm with field researcher 
+    start_date: 2026-06-15 
     end_date: null
     account: !ENV FITBIT_KOL_01_USER
     notes: ""
@@ -19,7 +19,7 @@ fitbit_devices:
     type: fitbit
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: 2026-05-26 # Confirm with field researcher  
+    start_date: 2026-06-15 
     end_date: null
     account: !ENV FITBIT_KOL_02_USER
     notes: ""
@@ -28,7 +28,7 @@ fitbit_devices:
     type: fitbit
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: 2026-05-26 # Confirm with field researcher  
+    Start_date: 2026-06-15
     end_date: null
     account: !ENV FITBIT_KOL_03_USER
     notes: ""
@@ -37,7 +37,7 @@ fitbit_devices:
     type: fitbit
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: 2026-05-26 # Confirm with field researcher 
+    start_date: 2026-06-15
     end_date: null
     account: !ENV FITBIT_KOL_04_USER
     notes: ""
@@ -46,28 +46,20 @@ fitbit_devices:
     type: fitbit
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: 2026-05-26 # Confirm with field researcher 
+    start_date: 2026-07-03
     end_date: null
     account: !ENV FITBIT_KOL_05_USER
     notes: ""
+
 
   - id: fitbit_kol_06
     type: fitbit
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: 2026-05-26 # Confirm with field researcher 
+    start_date: 2026-06-15
     end_date: null
     account: !ENV FITBIT_KOL_06_USER
     notes: ""
-
-  - id: fitbit_kol_07
-    type: fitbit
-    site: kolkata
-    timezone: Asia/Kolkata
-    start_date: 2026-05-26 # Confirm with field researcher 
-    end_date: null
-    account: !ENV FITBIT_KOL_07_USER
-    notes: "device was handed over to participant_07 on 2026-06-30"
 
 atmotube_devices:
   - id: atmotube_kol_01
@@ -82,7 +74,7 @@ atmotube_devices:
     type: atmotube
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: 2026-07-03 
+    start_date: 2026-07-03
     end_date: null
     mac: !ENV ATMOTUBE_KOL_02_MAC
 
@@ -106,7 +98,7 @@ atmotube_devices:
     type: atmotube
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: 2026-07-03   
+    start_date: 2026-07-03  
     end_date: null
     mac: !ENV ATMOTUBE_KOL_05_MAC
 
@@ -114,28 +106,23 @@ atmotube_devices:
     type: atmotube
     site: kolkata
     timezone: Asia/Kolkata
-    start_date: 2026-07-05  
+    start_date: 2026-07-05 
     end_date: null
     mac: !ENV ATMOTUBE_KOL_06_MAC
 
-  - id: atmotube_kol_07 # NOT YET ADDED TO ATMO CLOUD
-    type: atmotube
-    site: kolkata
-    timezone: Asia/Kolkata
-    start_date: 2026-06-12
-    end_date: null
-    mac: !ENV ATMOTUBE_KOL_07_MAC
 
 
-# ============================================================================================================
+
 # STUDY SITES + API cred
 # - Fitbit ==> OAuth client (https://console.cloud.google.com/ Cloud Project ID: fitbit-multi-user-dev)
 # - Atmotube ==> API key (https://cloud.atmotube.com/ User Account: sensailabs.research@gmail.com)
 
+
 sites:
   kolkata:
-    fitbit_client_secret_path: extract/config/secrets/fitbit/client_secret.json 
+    fitbit_client_secret_path: extract/config/secrets/fitbit/client_secret.json
     atmotube_api_key_site: extract/config/secrets/atmotube/api_key.json
-  # toronto:
-  #  fitbit_client_secret_path: extract/config/secrets/fitbit/client_secret.json  # same OAuth client, shared
-  #  atmotube_api_key_site: ATMOTUBE_API_KEY_TORONTO
+# toronto:
+#  fitbit_client_secret_path: extract/config/secrets/fitbit/client_secret.json  # same OAuth client, shared
+#  atmotube_api_key_site: ATMOTUBE_API_KEY_TORONTO
+

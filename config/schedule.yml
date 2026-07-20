@@ -1,4 +1,8 @@
 jobs:
   - name: fitbit_pull
     trigger: interval
-    minutes: 1 # put back to 30 after testing
+    minutes: 30
+
+  - name: atmotube_pull
+    trigger: interval
+    minutes: 30

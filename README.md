@@ -29,11 +29,6 @@ The data pipeline starts from wherever the data is kept. `load.py`'s `__main__` 
 
 [![Flow of Data from Multiple Devices](multidevice_dataflow.png)](multidevice_dataflow.png)
 
-
-**Note on DataFrames:** parsers return `list[dict]`, not DataFrames, at their public boundary — DataFrames are only used internally where they earn their keep (e.g. `atmotube_parser.py`'s vectorized `.astype()` dtype coercion driven by `atmotube_registry.py`), then converted to row-dicts before returning.
-
-[![Flow of Data from Multiple Devices](multidevice_dataflow.png)](multidevice_dataflow.png)
-
 ## Structure of this Repository
 
 ```

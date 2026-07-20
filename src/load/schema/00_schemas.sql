@@ -4,7 +4,7 @@
 -- So file is safe to re-run against a non-Docker Postgres too.
 
 CREATE SCHEMA IF NOT EXISTS raw;
-CREATE SCHEMA IF NOT EXISTS core;
+CREATE SCHEMA IF NOT EXISTS study;
 CREATE SCHEMA IF NOT EXISTS atmotube;
 CREATE SCHEMA IF NOT EXISTS fitbit;
 -- CREATE SCHEMA IF NOT EXISTS timeline; -- google maps timeline 

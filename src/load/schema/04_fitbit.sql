@@ -4,37 +4,20 @@
 CREATE TABLE IF NOT EXISTS fitbit.readings (
     id             BIGSERIAL PRIMARY KEY,
     device_id      TEXT NOT NULL REFERENCES study.devices(id),
-    data_type      TEXT NOT NULL,       -- e.g. "steps", "daily-resting-heart-rate"
+    data_type      TEXT NOT NULL,       -- e.g. "steps", "activity-level", "sedentary-period"
     grain          TEXT NOT NULL,       -- "sample" | "interval" | "daily"
     recorded_at    TIMESTAMPTZ NOT NULL,
-    ended_at         TIMESTAMPTZ,         -- NULL for "sample" grain (single instant, no interval)
-    metric         TEXT NOT NULL,       -- e.g. "heart_rate_bpm", "active_zone_minutes" (see fitbit_registry.py)
-    tag            TEXT,                -- sub-label within a metric, e.g. zone name; NULL when a metric has none
-    value_numeric  DOUBLE PRECISION,
-    value_text     TEXT,
-    ingest_id  BIGINT REFERENCES raw.ingests(id),
+    ended_at       TIMESTAMPTZ,
+    metric         TEXT NOT NULL DEFAULT '',   -- '' (not NULL) for state rows, so UNIQUE stays reliable
+    tag            TEXT,
+    value_numeric  DOUBLE PRECISION,            -- populated for continuous data_types
+    value_text     TEXT,                        -- populated for categorical data_types (state label [e.g. SEDENTARY], enum, etc)
+    ingest_id      BIGINT REFERENCES raw.ingests(id),
     UNIQUE (device_id, data_type, recorded_at, metric, tag)
 );
 
 CREATE INDEX IF NOT EXISTS idx_fitbit_readings_device_type_time
     ON fitbit.readings (device_id, data_type, recorded_at DESC);
-
--- fitbit.states — "activity-level" / "sedentary-period" registry entries route here
--- (fitbit_registry.py: "destination": "states"), never to fitbit.readings.
-CREATE TABLE IF NOT EXISTS fitbit.states (
-    id             BIGSERIAL PRIMARY KEY,
-    device_id      TEXT NOT NULL REFERENCES study.devices(id),
-    data_type      TEXT NOT NULL,       -- e.g. "activity-level", "sedentary-period"
-    grain          TEXT NOT NULL,
-    recorded_at    TIMESTAMPTZ NOT NULL,
-    ended_at         TIMESTAMPTZ,
-    state_value    TEXT NOT NULL,       -- e.g. "SEDENTARY", or activityLevelType's label
-    ingest_id  BIGINT REFERENCES raw.ingests(id),
-    UNIQUE (device_id, data_type, recorded_at)
-);
-
-CREATE INDEX IF NOT EXISTS idx_fitbit_states_device_type_time
-    ON fitbit.states (device_id, data_type, recorded_at DESC);
 
 -- fitbit.sleep_sessions — one row per sleep record
 CREATE TABLE IF NOT EXISTS fitbit.sleep_sessions (
@@ -54,10 +37,8 @@ CREATE TABLE IF NOT EXISTS fitbit.sleep_sessions (
 );
 
 -- fitbit.sleep_stages — child table, one row per stage within a session.
--- NOTE: fitbit_parser._parse_sleep() emits "started_at" (not "started_at") per stage row,
--- plus "device_id" and "session_started_at" as join keys only — load.py must resolve
--- session_started_at -> the parent fitbit.sleep_sessions.id (via its started_at) and drop
--- both join-key fields before inserting; neither is a column here.
+-- NOTE: fitbit_parser._parse_sleep() emits "started_at" (not "started_at") per stage row, + "device_id" and "session_started_at" as join keys only
+-- load.py must resolve session_started_at -> the parent fitbit.sleep_sessions.id (via its started_at) and drop both join-key fields before inserting; neither is a column here.
 CREATE TABLE IF NOT EXISTS fitbit.sleep_stages (
     id          BIGSERIAL PRIMARY KEY,
     session_id  BIGINT NOT NULL REFERENCES fitbit.sleep_sessions(id), -- ForiegnKey (FK) is "which sleep session I belong to" which is fitbit.sleep_session's `id`

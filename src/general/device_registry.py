@@ -31,7 +31,7 @@ def load_yaml_with_env(config_path: str) -> Any:
         # safe_load now recognizes !ENV due to global registration
         return yaml.safe_load(f)
 
-def load_devices(config_path: str = "config/devices.yml") -> list[dict[str, Any]]:
+def load_devices(config_path: str = "config/sources.yml") -> list[dict[str, Any]]:
     """
     Load and flatten device entries from a YAML registry.
     Expects a mapping at the YAML root where keys ending in "_devices" contain a list of device objects.

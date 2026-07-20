@@ -1,8 +1,7 @@
 # transform/registries/fitbit_registry.py
 """
 Declarative mapping for Fitbit data types that reduce to a lookup rule.
-Four types (sleep, exercise, daily-heart-rate-zones, respiratory-rate-sleep-summary)
-are NOT here — their shapes are unique enough that a bespoke function in
+Four types (sleep, exercise, daily-heart-rate-zones, respiratory-rate-sleep-summary) are NOT here — their shapes are unique enough that a bespoke function in
 fitbit_parser.py is clearer than forcing them through a generic "kind".
 
 Each entry's "kind" determines how a data point's nested payload is read:
