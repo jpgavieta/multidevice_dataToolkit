@@ -98,7 +98,6 @@ The data pipeline starts from wherever the data is kept. `load.py`'s `__main__` 
 │   │   ├── transform.py           # transform_device_data(): device_type → parser via DEVICE_REGISTRY;
 │   │   │                          # calls parser.parse(payload, device_id, timezone) uniformly; output is
 │   │   │                          # { device_type: { device_id: { "data": { table_name: [ {row}, ... ] } } } }
-│   │   ├── utils.py               # JSON-blob flattening, GIS/timezone column auto-detection (used inside parse)
 │   │   ├── parse/
 │   │   │   ├── __init__.py
 │   │   │   ├── atmotube_parser.py
@@ -120,7 +119,7 @@ The data pipeline starts from wherever the data is kept. `load.py`'s `__main__` 
 │           ├── 01_raw.sql         # raw.ingests — append-only log of every pipeline pull, JSONB payload
 │           ├── 02_study.sql       # study.devices, study.pipeline_runs, etc.
 │           ├── 03_atmotube.sql    # atmotube.readings — one table (+ adds PostGIS location column)
-│           └── 04_fitbit.sql      # fitbit.readings / states / sleep_sessions / sleep_stages / exercise_sessions / profile
+│           └── 04_fitbit.sql      # fitbit.readings / sleep_sessions / sleep_stages / exercise_sessions / profile
 │
 │~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ├── tests/

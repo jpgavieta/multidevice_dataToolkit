@@ -14,12 +14,8 @@ Prerequisites for onboarding a NEW device:
     2.  MUST know the device_id you're about to assign it (check devices.yml; e.g. fitbit_kol_08).
 
 USAGE:
-python -m extract.scripts.verify_fitbit fitbit_kol_07   # one device —
-                                                        # onboards if new,
-                                                        # verifies if not
-python -m extract.scripts.verify_fitbit --all           # every fitbit
-                                                        # device in
-                                                        # devices.yml
+python -m extract.scripts.verify_fitbit fitbit_kol_07   # one device — onboards if new, verifies if not
+python -m extract.scripts.verify_fitbit --all           # every fitbit device in devices.yml
 
 If a browser window opens, sign in to THIS DEVICE'S Google account (NOT a personal account), and approve the requested permissions.
 
@@ -31,7 +27,7 @@ only devices needing a real consent flow will prompt before each one, so always 
 import sys
 import argparse
 
-from general.device_registry import load_devices
+from general.study_registry import load_devices
 from extract.config.tokens import get_fitbit_token
 from extract.clients.fitbit_client import get_profile
 
@@ -129,7 +125,7 @@ def main():
         verify_all()
     elif args.device_id:
         verify_one(args.device_id)
-        print(f"\nIf new: add '{args.device_id}' to config/devices.yaml if not already present.")
+        print(f"\nIf new: add '{args.device_id}' to config/devices.yml if not already present.")
     else:
         parser.error("Provide a device_id or use --all")
 

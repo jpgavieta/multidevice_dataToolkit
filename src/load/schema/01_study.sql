@@ -1,4 +1,4 @@
--- src/load/schemas/02_study.sql --formerly: 02_core.sql
+-- src/load/schemas/01_study.sql --formerly: 02_core.sql
 -- No data FROM a device — only data ABOUT devices, participants, and pipeline runs (study-level)
 
 CREATE TABLE IF NOT EXISTS study.devices (

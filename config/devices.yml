@@ -121,8 +121,8 @@ atmotube_devices:
 sites:
   kolkata:
     fitbit_client_secret_path: extract/config/secrets/fitbit/client_secret.json
-    atmotube_api_key_site: extract/config/secrets/atmotube/api_key.json
+    atmotube_api_key_site: extract/config/secrets/atmotube/api_key_kolkata.json
 # toronto:
 #  fitbit_client_secret_path: extract/config/secrets/fitbit/client_secret.json  # same OAuth client, shared
-#  atmotube_api_key_site: ATMOTUBE_API_KEY_TORONTO
+#  atmotube_api_key_site: extract/config/secrets/atmotube/...
 

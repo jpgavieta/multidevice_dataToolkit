@@ -6,12 +6,13 @@ Parses raw Fitbit / Google Health API responses (from extract/clients/fitbit_cli
 Timestamps: 
     -   'sample' and 'interval' grain fields (startTime/endTime/physicalTime are already Z-normalized UTC — no conversion needed. 
     -   'daily' grain fields are a bare {year, month, day} with no offset — these are localized to midnight in the DEVICE'S declared timezone (from study.devices / devices.yml), then converted to UTC.
-    -   civilStartTime/civilEndTime are never used for timestamps.
+    -   civilStartTime/civilEndTime are never used for timestamps, EXCEPT for 'calories-in-heart-rate-zone' (see fitbit_registry.py's date_source="civil"), which has no 'date' field of its own — civilStartTime.date is the only available source. 
+        This is a narrow, explicit exception; do not extend it to other data types without confirming they truly have no alternative.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo # since the timestamps are all Z-normalized UTC
 
 import pandas as pd
 
@@ -41,7 +42,7 @@ def _get(d: dict, path: str) -> Any:
     return cur
 
 
-def _start_end(nested: dict, grain: str, tz_name: str):
+def _start_end(nested: dict, grain: str, tz_name: str, point: dict | None = None, date_source: str = "nested"):
     if grain == "sample":
         start = pd.to_datetime(_get(nested, "sampleTime.physicalTime"), utc=True)
         return start, None
@@ -52,7 +53,22 @@ def _start_end(nested: dict, grain: str, tz_name: str):
         return start, end
 
     if grain == "daily":
-        d = nested.get("date", {})
+        if date_source == "civil":
+            # Scoped exception — see module docstring. point is the raw point
+            # object (civilStartTime is a SIBLING of the data-type key, not
+            # nested inside it), unlike every other branch here which only
+            # needs the nested payload.
+            if point is None:
+                raise ValueError("date_source='civil' requires the raw point, not just nested payload")
+            d = _get(point, "civilStartTime.date")
+            source_desc = "point.civilStartTime.date"
+        else:
+            d = nested.get("date", {})
+            source_desc = "nested.date"
+
+        if not d or "year" not in d:
+            raise ValueError(f"'daily' grain: no usable date found at {source_desc} — got {d!r}")
+
         local_midnight = datetime(d["year"], d["month"], d["day"], tzinfo=ZoneInfo(tz_name))
         local_next = local_midnight + timedelta(days=1)
         return (
@@ -68,12 +84,13 @@ def _parse_registry_type(data_type: str, points: list, device_id: str, tz_name: 
     camel = _to_camel(data_type)
     rows = []
     grain = rules["grain"]
+    date_source = rules.get("date_source", "nested")
 
     for point in points:
         nested = point.get(camel, {})
-        start, end = _start_end(nested, grain, tz_name)
+        start, end = _start_end(nested, grain, tz_name, point=point, date_source=date_source)
         base = {"device_id": device_id, "data_type": data_type, "grain": grain,
-                "recorded_at": start, "end_at": end}
+                "recorded_at": start, "ended_at": end}
 
         kind = rules["kind"]
 
@@ -112,6 +129,13 @@ def _parse_registry_type(data_type: str, points: list, device_id: str, tz_name: 
 
     return rows
 
+def _parse_seconds(value):
+    """Fitbit returns duration fields as strings like '1860s'. Strip suffix, cast to int."""
+    if value is None:
+        return None
+    if isinstance(value, str) and value.endswith("s"):
+        value = value[:-1]
+    return int(value)
 
 def _parse_hr_zones(points: list, device_id: str, tz_name: str) -> list:
     """daily-heart-rate-zones — calibration data, one row per (zone, bound)."""
@@ -120,7 +144,7 @@ def _parse_hr_zones(points: list, device_id: str, tz_name: str) -> list:
         nested = point.get("dailyHeartRateZones", {})
         start, end = _start_end(nested, "daily", tz_name)
         base = {"device_id": device_id, "data_type": "daily-heart-rate-zones",
-                "grain": "daily", "recorded_at": start, "end_at": end, "metric": "hr_zone_bpm"}
+                "grain": "daily", "recorded_at": start, "ended_at": end, "metric": "hr_zone_bpm"}
         for zone in nested.get("heartRateZones", []):
             zone_name = zone.get("heartRateZoneType")
             for bound, suffix in (("minBeatsPerMinute", "min"), ("maxBeatsPerMinute", "max")):
@@ -142,7 +166,7 @@ def _parse_respiratory_sleep_summary(points: list, device_id: str, tz_name: str)
         nested = point.get("respiratoryRateSleepSummary", {})
         start, _ = _start_end(nested, "sample", tz_name)
         base = {"device_id": device_id, "data_type": "respiratory-rate-sleep-summary",
-                "grain": "sample", "recorded_at": start, "end_at": None}
+                "grain": "sample", "recorded_at": start, "ended_at": None}
         for stage_key, stage_tag in stage_keys.items():
             stage = nested.get(stage_key, {})
             for field, metric in field_metrics.items():
@@ -161,7 +185,7 @@ def _parse_sleep(points: list, device_id: str) -> tuple[list, list]:
         end = pd.to_datetime(_get(nested, "interval.endTime"), utc=True)
         summary = nested.get("summary", {})
         sessions.append({
-            "device_id": device_id, "started_at": start, "end_at": end,
+            "device_id": device_id, "started_at": start, "ended_at": end,
             "sleep_type": nested.get("type"),
             "is_nap": (nested.get("metadata") or {}).get("nap"),
             "minutes_in_sleep_period": summary.get("minutesInSleepPeriod"),
@@ -191,7 +215,7 @@ def _parse_exercise(points: list, device_id: str) -> list:
         summary = nested.get("metricsSummary", {})
         zone_durations = summary.get("heartRateZoneDurations", {})
         rows.append({
-            "device_id": device_id, "started_at": start, "end_at": end,
+            "device_id": device_id, "started_at": start, "ended_at": end,
             "exercise_type": nested.get("exerciseType"),
             "display_name": nested.get("displayName"),
             "calories_kcal": summary.get("caloriesKcal"),
@@ -199,26 +223,40 @@ def _parse_exercise(points: list, device_id: str) -> list:
             "steps": summary.get("steps"),
             "avg_pace_sec_per_meter": summary.get("averagePaceSecondsPerMeter"),
             "avg_heart_rate_bpm": summary.get("averageHeartRateBeatsPerMinute"),
-            "light_time_sec": zone_durations.get("lightTime"),
-            "moderate_time_sec": zone_durations.get("moderateTime"),
-            "vigorous_time_sec": zone_durations.get("vigorousTime"),
-            "peak_time_sec": zone_durations.get("peakTime"),
+            "light_time_sec": _parse_seconds(zone_durations.get("lightTime")),
+            "moderate_time_sec": _parse_seconds(zone_durations.get("moderateTime")),
+            "vigorous_time_sec": _parse_seconds(zone_durations.get("vigorousTime")),
+            "peak_time_sec": _parse_seconds(zone_durations.get("peakTime")),
         })
     return rows
 
+def _parse_profile(payload: dict | None, device_id: str) -> dict | None:
+    """profile — single snapshot row per device per pull; recorded_at is stamped later in load.py."""
+    if not payload:
+        return None
+    membership = payload.get("membershipStartDate") or {}
+    membership_date = None
+    if all(k in membership for k in ("year", "month", "day")):
+        membership_date = date(membership["year"], membership["month"], membership["day"])
+    return {
+        "device_id": device_id,
+        "age": payload.get("age"),
+        "membership_start_date": membership_date,
+        "walking_stride_mm": payload.get("userConfiguredWalkingStrideLengthMm"),
+        "running_stride_mm": payload.get("userConfiguredRunningStrideLengthMm"),
+    }
 
 def parse(raw_data: dict, device_id: str, timezone: str) -> dict:
     """
     Takes the raw dict from extract.clients.fitbit_client.extract_raw_data(),
-    plus the device's declared timezone (from study.devices — needed only for
-    'daily' grain records), returns row-dicts keyed by destination table, ready
-    for execute_values() — NOT DataFrames:
-    {"readings": [ {...}, ... ], "sleep_sessions": [...],
-    "sleep_stages": [...], "exercise_sessions": [...]} — a key is omitted if
-    that device's pull had no rows for that destination.
+    plus the device's declared timezone (from study.devices — needed only for 'daily' grain records), 
+    Returns row-dicts keyed by destination table, ready for execute_values() — NOT DataFrames:
+    {"readings": [ {...}, ... ], "sleep_sessions": [...], "sleep_stages": [...], "exercise_sessions": [...]}
+    — a key is omitted if that device's pull had no rows for that destination.
     """
     readings_rows = []
     sleep_sessions, sleep_stages, exercise_rows = [], [], []
+    profile_row = _parse_profile(raw_data.get("profile"), device_id)
 
     for data_type, payload in raw_data.items():
         if data_type == "profile":
@@ -264,5 +302,7 @@ def parse(raw_data: dict, device_id: str, timezone: str) -> dict:
         result["sleep_stages"] = sleep_stages
     if exercise_rows:
         result["exercise_sessions"] = exercise_rows
+    if profile_row:
+        result["profile"] = profile_row  # single dict, NOT a list — see load.py note below
 
     return result

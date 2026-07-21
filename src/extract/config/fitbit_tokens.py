@@ -108,15 +108,16 @@ def _wait_for_code() -> str:
 
 
 def get_access_token(device_id: str, allow_interactive: bool = True) -> str:
-    """
-    Returns a valid access token for this device's Google Health account.
-    If allow_interactive is False and no token exists yet, raises instead of opening a browser.
-    Use this for scheduled/batch pulls where an un-onboarded device should fail loudly, NOT silently launch OAuth.
-    """
     token_file = _token_file(device_id)
     if token_file.exists():
         tokens = json.loads(token_file.read_text())
-        return _refresh_access_token(device_id, tokens)
+        try:
+            return _refresh_access_token(device_id, tokens)
+        except requests.exceptions.HTTPError:
+            if not allow_interactive:
+                raise
+            print(f"⚠️  Saved token for '{device_id}' is no longer valid (refresh rejected). Re-authorizing...")
+            return _run_interactive_auth(device_id)
     if not allow_interactive:
         raise RuntimeError(
             f"No saved token for '{device_id}' — device not onboarded. "
@@ -168,6 +169,8 @@ def _refresh_access_token(device_id: str, tokens: dict) -> str:
         "refresh_token": tokens["refresh_token"],
         "grant_type": "refresh_token",
     })
+    if not resp.ok:
+        print(f"DEBUG — Google response body: {resp.text}")   # <-- add this line
     resp.raise_for_status()
     new_tokens = resp.json()
     new_tokens.setdefault("refresh_token", tokens["refresh_token"])

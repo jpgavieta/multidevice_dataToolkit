@@ -16,14 +16,15 @@ E.g. If device 9 of 13 has a bad record, devices 1-8's (already correctly parsed
     Only device 9's transaction rolls back and gets logged as failed in study.pipeline_runs.
     TRADE-OFF: 13 commits instead of 1 for not losing 12 devices' worth of correctly-loaded data over one bad device.
 
-NOTE ON fitbit.readings: this table now absorbs what used to be a separate fitbit.states table. 
+NOTE: fitbit.readings -> this table now absorbs what used to be a separate fitbit.states table. 
     Categorical/state-type records (e.g. "activity-level", "sedentary-period") route through the SAME ("fitbit", "readings") destination as scalar metrics. See fitbit_registry.py for which data_types are which.
-    State rows populate value_text (and leave value_numeric NULL); scalar rows populate value_numeric (and leave value_text NULL). metric defaults to ''
-    for state rows (not NULL) so the UNIQUE constraint stays reliable. see 04_fitbit.sql.
+    State rows populate value_text (mirroring the state already stored in tag — tag is kept, not cleared, since it's part of the UNIQUE constraint and clearing it would break upsert-safety on re-pulls) 
+    and leave value_numeric NULL; scalar rows populate value_numeric and leave value_text NULL. metric defaults to '' for state rows (not NULL) so the UNIQUE constraint stays reliable. see 04_fitbit.sql.
 """
 
 import os
 import json
+from typing import Optional
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -45,7 +46,7 @@ DESTINATION_TABLES = {
     ("fitbit", "readings"):          ("fitbit.readings",          ("device_id", "data_type", "recorded_at", "metric", "tag")),
     ("fitbit", "sleep_sessions"):    ("fitbit.sleep_sessions",    ("device_id", "started_at")),
     ("fitbit", "exercise_sessions"): ("fitbit.exercise_sessions", ("device_id", "started_at")),
-    ("fitbit", "profile"):           ("fitbit.profile",           ("device_id",)),
+    ("fitbit", "profile"):           ("fitbit.profile",           ("device_id", "recorded_at")),
     ("atmotube", "readings"):        ("atmotube.readings",        ("device_id", "recorded_at")),
 }
 SLEEP_STAGES_TABLE = "fitbit.sleep_stages"
@@ -88,7 +89,7 @@ def _build_location(latitude, longitude) -> str | None:
     return f"SRID=4326;POINT({longitude} {latitude})"
 
 
-def load_raw_data(all_data: dict[str, dict[str, dict]]) -> dict[tuple[str, str], int]:
+def load_raw_data(all_data: dict[str, dict[str, dict]]) -> tuple[dict[tuple[str, str], int], datetime]:
     """
     Pushes raw API payloads into raw.ingests, one row per device per pull.
     all_data shape: { device_type: { device_id: {"payload": ..., "ingest_method": ...} } }
@@ -106,7 +107,7 @@ def load_raw_data(all_data: dict[str, dict[str, dict]]) -> dict[tuple[str, str],
 
     if not rows:
         print("⚠️ No raw data to load.")
-        return {}
+        return {}, pulled_at
 
     conn = _get_connection()
     try:
@@ -129,18 +130,17 @@ def load_raw_data(all_data: dict[str, dict[str, dict]]) -> dict[tuple[str, str],
 
     # Postgres processes/returns multi-row VALUES+RETURNING in input order, so this
     # zip is safe — each returned id lines up with the key at the same position.
-    return {key: returned_row[0] for key, returned_row in zip(keys, returned)}
+    return {key: returned_row[0] for key, returned_row in zip(keys, returned)}, pulled_at
 
-
-def _upsert_rows(cur, table: str, rows: list[dict], conflict_cols: tuple, returning: tuple = ("id",)) -> list[dict]:
+def _upsert_rows(cur, table: str, rows: list[dict], conflict_cols: tuple, returning: Optional[tuple] = None) -> list[dict]:   
     """
     Generic upsert: INSERT ... ON CONFLICT (conflict_cols) DO UPDATE, returning the requested columns per row
     (used for FK resolution, e.g. sleep_sessions -> id).
+    If `returning` is not provided, defaults to conflict_cols (guaranteed to exist on every table).
     Every row must share the same set of keys (parser output should guarantee this).
-
-    If table appears in WKT_COLUMNS, that one column's placeholder is wrapped in ST_GeomFromEWKT(%s) instead of a plain %s.
-    The value itself must already be an EWKT string (see _build_location()), not a lat/lon pair.
     """
+    if returning is None:
+        returning = conflict_cols
     if not rows:
         return []
 
@@ -186,10 +186,27 @@ def _prepare_atmotube_rows(rows: list[dict]) -> list[dict]:
         prepared.append(row)
     return prepared
 
+def _prepare_fitbit_readings_rows(rows: list[dict]) -> list[dict]:
+    """
+    Populates value_text for state/categorical rows (fitbit_parser.py's 'categorical' kind puts the state label in 'tag', not 'value_text' — see fitbit_registry.py).
+    Every row destined for fitbit.readings must end up with the SAME set of keys (see _upsert_rows), so value_text is set to None for scalar rows too, not omitted.
 
-def _load_one_device(cur, device_type: str, device_id: str, data: dict, ingest_id: int) -> None:
-    """Loads every destination table for one device's parsed output. Raises on any failure —
-    caller is responsible for commit/rollback, since that's where per-device isolation lives."""
+    NOTE: tag is intentionally NOT cleared for state rows, even though it now duplicates value_text. fitbit.readings' UNIQUE constraint includes tag 
+    — clearing it to NULL would break ON CONFLICT matching on re-pulls (NULL never conflicts with NULL in Postgres), causing duplicate rows on every re-run instead of a clean upsert.
+    """
+    prepared = []
+    for row in rows:
+        row = dict(row)  # don't mutate the parser's own output
+        if row.get("value_numeric") is None and row.get("tag") is not None:
+            row["value_text"] = row["tag"]
+        else:
+            row["value_text"] = None
+        prepared.append(row)
+    return prepared
+
+def _load_one_device(cur, device_type: str, device_id: str, data: dict, ingest_id: int, pulled_at: datetime) -> None:
+    """Loads every destination table for one device's parsed output. 
+    Raises on any failure — caller is responsible for commit/rollback, since that's where per-device isolation lives."""
 
     # sleep_sessions must land first — sleep_stages needs the generated
     # session_id, resolved below via each stage's session_started_at.
@@ -204,6 +221,11 @@ def _load_one_device(cur, device_type: str, device_id: str, data: dict, ingest_i
     for table_name, rows in data.items():
         if table_name == "sleep_sessions" or not rows:
             continue
+
+        if table_name == "profile":
+            rows = dict(rows)  # don't mutate the parser's own output
+            rows["recorded_at"] = pulled_at
+            rows = [rows]  # single dict per device -> list of one to match _upsert_rows' expected shape
 
         if table_name == "sleep_stages":
             resolved = []
@@ -237,14 +259,16 @@ def _load_one_device(cur, device_type: str, device_id: str, data: dict, ingest_i
 
         if table_name == "readings" and device_type == "atmotube":
             tagged_rows = _prepare_atmotube_rows(tagged_rows)
+        elif table_name == "readings" and device_type == "fitbit":
+            tagged_rows = _prepare_fitbit_readings_rows(tagged_rows)
 
         _upsert_rows(cur, sql_table, tagged_rows, conflict_cols)
         print(f"   ✅ Loaded {len(tagged_rows)} row(s) into {sql_table} for {device_type}/{device_id}")
 
-
 def load_processed_data(
     transformed: dict[str, dict[str, dict]],
     ingest_ids: dict[tuple[str, str], int],
+    pulled_at: datetime,
 ) -> None:
     """
     Inserts transform.py's output into the processed schema tables (fitbit.*, atmotube.*).
@@ -263,6 +287,9 @@ def load_processed_data(
         list[dict], ready for execute_values().
     ingest_ids : dict
         { (device_type, device_id): ingest_id } — output of load_raw_data().
+    pulled_at : datetime
+        Shared timestamp from load_raw_data()'s pull batch — stamped onto
+        fitbit.profile.recorded_at so each snapshot is anchored in time.
     """
     conn = _get_connection()
     try:
@@ -279,7 +306,7 @@ def load_processed_data(
                 run_id = start_run(conn, device_type, device_id)
                 try:
                     with conn.cursor() as cur:
-                        _load_one_device(cur, device_type, device_id, data, ingest_id)
+                        _load_one_device(cur, device_type, device_id, data, ingest_id, pulled_at)
                     conn.commit()
                     end_run(conn, run_id, status="success")
                 except Exception as e:
@@ -297,6 +324,6 @@ if __name__ == "__main__":
     from transform.transform import transform_device_data
 
     raw = extract_all_devices()
-    ingest_ids = load_raw_data(raw)
+    ingest_ids, pulled_at = load_raw_data(raw)
     transformed = transform_device_data(raw)
-    load_processed_data(transformed, ingest_ids)
+    load_processed_data(transformed, ingest_ids, pulled_at)

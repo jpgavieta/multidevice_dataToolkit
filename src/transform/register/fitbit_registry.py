@@ -6,15 +6,12 @@ fitbit_parser.py is clearer than forcing them through a generic "kind".
 
 Each entry's "kind" determines how a data point's nested payload is read:
 
-- scalar         —  one field is one metric.               {"beatsPerMinute": "93"}
-- tagged_scalar  —  one field is the value, a sibling field is the tag.
-                    {"heartRateZone": "FAT_BURN", "activeZoneMinutes": "1"}
-- list_fanout    —  a list of {tag_field, value_field} dicts; one row per item.
-                    "activeMinutesByActivityLevel": [{"activityLevel": "LIGHT", "activeMinutes": "1"}]
-- field_map      —  several sibling fields are DISTINCT metrics (different units).
-                    entropy, HRV ms, and non-REM bpm are not the same thing tagged differently.
-- tag_map        —  several sibling fields are the SAME metric, tagged differently.
-                    averagePercentage / lowerBoundPercentage / upperBoundPercentage are all "% SpO2".
+- scalar         —  one field is one metric.                                        e.g. {"beatsPerMinute": "93"}
+- categorical    —  one field is one category.                                      e.g. {"activityLevel": "LIGHT"}
+- tagged_scalar  —  one field is the value, a sibling field is the tag.             e.g. {"heartRateZone": "FAT_BURN", "activeZoneMinutes": "1"}
+- list_fanout    —  a list of {tag_field, value_field} dicts; one row per item.     e.g. "activeMinutesByActivityLevel": [{"activityLevel": "LIGHT", "activeMinutes": "1"}]
+- field_map      —  several sibling fields are DISTINCT metrics (different units).  e.g. entropy, HRV ms, and non-REM bpm are not the same thing tagged differently.
+- tag_map        —  several sibling fields are the SAME metric, tagged differently. e.g. averagePercentage / lowerBoundPercentage / upperBoundPercentage are all "% SpO2".
 """
 
 FITBIT_REGISTRY = {
@@ -66,11 +63,11 @@ FITBIT_REGISTRY = {
     },
     "calories-in-heart-rate-zone": {
         "grain": "daily", "destination": "readings", "kind": "list_fanout",
+        "date_source": "civil",  # no 'date' field exists for this type — civilStartTime.date is the only source. See fitbit_parser.py docstring.
         "list_field": "caloriesInHeartRateZones",
         "tag_field": "heartRateZone", "value_field": "kcal",
         "metric": "calories_in_hr_zone_kcal", "unit": "kcal", "dtype": "float64",
     },
-
     "daily-oxygen-saturation": {
         "grain": "daily", "destination": "readings", "kind": "tag_map",
         "metric": "oxygen_saturation_pct", "unit": "pct", "dtype": "float64",
@@ -111,12 +108,12 @@ BESPOKE_DATA_TYPES = {
     "sleep", "exercise", "daily-heart-rate-zones", "respiratory-rate-sleep-summary",
 }
 
-# sedentary-period is intentionally dropped: activity-level's per-minute activityLevelType already includes a SEDENTARY value at finer granularity,
-# so sedentary-period's coarser derived blocks are fully redundant.
+# sedentary-period is intentionally dropped:
+# activity-level's per-minute activityLevelType already includes a SEDENTARY value at finer granularity, so sedentary-period's coarser derived blocks are fully redundant.
 DROPPED_DATA_TYPES = {"sedentary-period"}
 
 # Seen with 0 points in every sample so far, or deferred (waveform data).
-# Not yet mapped — will warn rather than guess at field names for these.
+# Not yet mapped. will warn rather than guess at field names for these.
 UNMAPPED_DATA_TYPES = {
     "altitude", "floors", "daily-vo2-max", "core-body-temperature",
     "blood-glucose", "body-fat", "weight", "height",

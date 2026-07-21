@@ -76,9 +76,11 @@ CREATE INDEX IF NOT EXISTS idx_fitbit_exercise_sessions_device_time
     ON fitbit.exercise_sessions (device_id, started_at DESC);
 
 CREATE TABLE IF NOT EXISTS fitbit.profile (
-    device_id              TEXT PRIMARY KEY REFERENCES study.devices(id),
+    device_id              TEXT NOT NULL REFERENCES study.devices(id),
+    recorded_at            TIMESTAMPTZ NOT NULL,
     age                    INTEGER,
     membership_start_date  DATE,
     walking_stride_mm      INTEGER,
-    running_stride_mm      INTEGER
+    running_stride_mm      INTEGER,
+    PRIMARY KEY (device_id, recorded_at)
 );

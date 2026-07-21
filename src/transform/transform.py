@@ -1,8 +1,8 @@
 import pandas as pd
 
-from .parsers import atmotube_parser
-from .parsers import fitbit_parser
-# from .parsers import ponyopi_parser
+from .parse import atmotube_parser
+from .parse import fitbit_parser
+# from .parse import ponyopi_parser
 
 # This should work REGARDLESS of the extract data method (read files or call apis)
 # Logic is all based on device_type, looping over each device_id within it.
@@ -26,7 +26,7 @@ def transform_device_data(
     raw_data: dict[str, dict[str, dict]]
 ) -> dict[str, dict[str, dict]]:
     """
-    Applies device-specific parsers to raw payloads, one device_id at a time.
+    Applies device-specific parse to raw payloads, one device_id at a time.
 
     IMPORTANT: parsing happens per device_id, never on combined/concatenated data. 
     Some files are JSON-blob format, others pre-flattened — each parser auto-detects that from its own single input, 
