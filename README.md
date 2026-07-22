@@ -27,7 +27,7 @@ Built specifically for a small-scale research (sole maintainer, some dozen devic
 
 The data pipeline starts from wherever the data is kept. `load.py`'s `__main__` block orchestrates the full run: it calls `extract.extract_all_devices()` to pull raw payloads per device, `load_raw_data()` to persist those into `raw.ingests` (returning an `ingest_id` per device), `transform.transform_device_data()` to run each device's payload through its registered parser (`transform/parse/`, driven by `transform/register/`), and finally `load_processed_data()` to upsert the resulting row-dicts into the destination tables (`fitbit.*` / `atmotube.*`) — resolving cross-table foreign keys (e.g. `sleep_stages` → `sleep_sessions`) along the way, and logging one `study.pipeline_runs` row per device via `general/run_logger.py` so failures are visible without reading stdout.
 
-[![Flow of Data from Multiple Devices](multidevice_dataflow.png)](multidevice_dataflow.png)
+[![Flow of Data from Multiple Devices](dataflow_diagram.svg)](dataflow_diagram.svg)
 
 ## Structure of this Repository
 

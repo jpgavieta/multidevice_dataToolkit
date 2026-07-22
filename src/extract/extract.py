@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
-from general.device_registry import load_devices
+from general.study_registry import load_devices
 from extract.clients import fitbit_client
 from extract.clients import atmotube_client
 # from extract.clients import ponyopi_client     # not developed yet
@@ -26,7 +26,7 @@ CLIENT_REGISTRY = {
 # Each device's own client may fan out further internally 
 #   -   fitbit_client's MAX_WORKERS_PER_DEVICE=4
 #   -   atmotube_client's MAX_WORKERS_PER_DEVICE=2) 
-DEVICE_COUNT = 13 # Only outer per-device cap, NOT total cocurrent request; update increase/decrease number of devices in devices.yml
+DEVICE_COUNT = 12 # Only outer per-device cap, NOT total cocurrent request; update increase/decrease number of devices in devices.yml
 
 # Must match raw.ingests.ingest_method's CHECK constraint (src/load/schemas/01_raw.sql).
 # 'csv_manual' is never produced here — see extract/scripts/backfill_atmotube.py.
